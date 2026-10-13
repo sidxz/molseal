@@ -1,0 +1,22 @@
+# Benchmark databases. Only one profile runs at a time during timing runs.
+#   docker compose -f bench/compose.yml --profile cartridge up -d
+#   docker compose -f bench/compose.yml --profile cartridge down
+services:
+  cartridge-db:
+    image: informaticsmatters/rdkit-cartridge-debian:Release_2025_03_3
+    profiles: ["cartridge"]
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: bench
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    command: >
+      postgres -c shared_buffers=4GB -c maintenance_work_mem=2GB -c effective_cache_size=8GB
+               -c work_mem=256MB -c rdkit.morgan_fp_size=2048 -c rdkit.do_chiral_sss=off
+    shm_size: 1g
+    ports:
+      - "127.0.0.1:5440:5432"
+    volumes:
+      - cartridge-pgdata:/var/lib/postgresql/data
+volumes:
+  cartridge-pgdata:
