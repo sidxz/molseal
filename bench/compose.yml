@@ -18,5 +18,31 @@ services:
       - "127.0.0.1:5440:5432"
     volumes:
       - cartridge-pgdata:/var/lib/postgresql/data
+  molseal-db:
+    image: postgres:16
+    profiles: ["molseal"]
+    environment:
+      POSTGRES_USER: molseal
+      POSTGRES_PASSWORD: molseal
+      POSTGRES_DB: molseal
+    command: postgres -c shared_buffers=1GB -c log_statement=none
+    ports:
+      - "127.0.0.1:5441:5432"
+    volumes:
+      - molseal-pgdata:/var/lib/postgresql/data
+  bench:
+    build:
+      context: ..
+      dockerfile: bench/Dockerfile
+    profiles: ["bench"]
+    environment:
+      MOLSEAL_DATABASE_URL: postgresql+psycopg://molseal:molseal@molseal-db:5432/molseal
+      MOLSEAL_CARTRIDGE_URL: postgresql+psycopg://bench:bench@cartridge-db:5432/bench
+      MOLSEAL_KEY_FILE: /app/bench/results/bench.key
+      MOLSEAL_SNAPSHOT_DIR: /app/bench/data/snap
+    volumes:
+      - ./data:/app/bench/data
+      - ./results:/app/bench/results
 volumes:
   cartridge-pgdata:
+  molseal-pgdata:
