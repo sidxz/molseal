@@ -1,7 +1,9 @@
 from uuid import uuid4
 
+import numpy as np
 import pytest
-from rdkit import Chem
+from rdkit import Chem, DataStructs
+from rdkit.Chem import rdFingerprintGenerator
 
 from molseal import engine
 from tests.mols import molecules
@@ -46,7 +48,6 @@ def test_canonicalize_round_trips_and_rejects_garbage():
 def test_morgan_matrix_shape_and_known_bit_count():
     m = engine.morgan_matrix([Chem.MolFromSmiles("CCO")])
     assert m.shape == (1, engine.FP_BYTES) and m.dtype.name == "uint8"
-    import numpy as np
     assert 1 <= int(np.bitwise_count(m).sum()) <= 20
 
 
@@ -96,3 +97,87 @@ def test_add_batch_skips_unparseable_and_already_seen():
     assert idx.add_batch([(a, "CCO", 1)]) == 0
     assert idx.has(a, 1) and not idx.has(a, 2)
     assert len(idx) == 1 and idx.positions == 1
+
+
+def brute_similar(dataset, query, threshold):
+    ids, _, mols = dataset
+    gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+    qfp = gen.GetFingerprint(Chem.MolFromSmiles(query))
+    sims = DataStructs.BulkTanimotoSimilarity(qfp, [gen.GetFingerprint(m) for m in mols])
+    return {i: s for i, s in zip(ids, sims) if s >= threshold}
+
+
+@pytest.mark.parametrize("query", ["CCOc1ccccc1", "CC(C)Cc1ccncc1", "NC(=O)c1ccccc1", "CCCl"])
+def test_similar_matches_bulk_tanimoto(index, dataset, query):
+    expected = brute_similar(dataset, query, 0.4)
+    got = index.similar(query, threshold=0.4)
+    assert {i for i, _ in got} == set(expected)
+    for i, s in got:
+        assert abs(s - expected[i]) < 1e-9
+    scores = [s for _, s in got]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_similar_top_k_and_self_hit(index, dataset):
+    ids, smiles, _ = dataset
+    got = index.similar(smiles[5], threshold=0.0, top_k=3)
+    assert len(got) == 3
+    assert got[0][0] == ids[5] and abs(got[0][1] - 1.0) < 1e-9
+
+
+def test_similar_on_empty_index_and_bad_query():
+    idx = engine.StructureIndex()
+    assert idx.similar("CCO") == []
+    idx.add_batch([(uuid4(), "CCO", 1)])
+    with pytest.raises(engine.StructureError):
+        idx.similar("C(")
+
+
+def test_edit_hides_the_old_structure_and_never_duplicates_the_id():
+    idx = engine.StructureIndex()
+    x, y = uuid4(), uuid4()
+    idx.add_batch([(x, "CCO", 1), (y, "CCN", 1)])
+    assert set(idx.substructure("CCO")) == {x}
+    idx.add_batch([(x, "c1ccccc1", 2)])
+    assert idx.substructure("CCO") == []            # old structure of x is gone
+    assert idx.substructure("c1ccccc1") == [x]      # new one is there, once
+    assert len(idx) == 2 and idx.positions == 3
+    assert {i for i, _ in idx.similar("c1ccccc1", threshold=0.99)} == {x}
+    assert {i for i, _ in idx.similar("CCO", threshold=0.99)} == set()
+
+
+def test_delete_removes_from_both_searches_and_caps_stay_honest():
+    idx = engine.StructureIndex()
+    ids = [uuid4() for _ in range(5)]
+    idx.add_batch([(i, "CCO", 1) for i in ids])
+    assert idx.mark_dead(ids[0], 2) and idx.mark_dead(ids[1], 2)
+    assert not idx.mark_dead(ids[1], 2)             # already at this version
+    assert len(idx) == 3
+    assert set(idx.substructure("CCO", max_results=5)) == set(ids[2:])
+    assert idx.count_substructure("CCO") == 3
+    assert {i for i, _ in idx.similar("CCO", threshold=0.99)} == set(ids[2:])
+
+
+def test_append_after_a_delete_is_visible():
+    idx = engine.StructureIndex()
+    a, b = uuid4(), uuid4()
+    idx.add_batch([(a, "CCO", 1)])
+    idx.mark_dead(a, 2)
+    idx.add_batch([(b, "CCO", 1)])
+    assert idx.substructure("CCO") == [b]
+
+
+def test_parts_round_trip_preserves_results_and_dead_mask():
+    idx = engine.StructureIndex()
+    a, b, c = uuid4(), uuid4(), uuid4()
+    idx.add_batch([(a, "CCO", 1), (b, "c1ccccc1", 1), (c, "CCN", 1)])
+    idx.mark_dead(c, 2)
+    idx.add_batch([(a, "CCCl", 2)])
+    idx.last_seq = 42
+    parts = idx.to_parts()
+    back = engine.StructureIndex.from_parts(parts)
+    assert back.last_seq == 42 and len(back) == 2 and back.positions == 4
+    assert back.substructure("CCCl") == [a] and back.substructure("CCO") == [] and back.substructure("CCN") == []
+    assert back.has(a, 2) and back.has(c, 2) and not back.has(c, 3)
+    assert {i for i, _ in back.similar("c1ccccc1", threshold=0.99)} == {b}
+    assert back.add_batch([(uuid4(), "CCO", 1)]) == 1
