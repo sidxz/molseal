@@ -2365,6 +2365,7 @@ def test_load_search_count_similar(ctx, capsys):
     assert len(ids) == 3 and all(uuid.UUID(i) for i in ids)
 
     assert cli.main(["search", "[r5]", "--smarts", *common]) == 0
+    capsys.readouterr()
     assert cli.main(["similar", lines[0].split("\t")[1], "--threshold", "0.99", *common]) == 0
     row = capsys.readouterr().out.strip().splitlines()[0].split("\t")
     assert row[0] == lines[0].split("\t")[0] and float(row[1]) > 0.99
