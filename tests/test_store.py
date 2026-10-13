@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 import sqlalchemy as sa
 
-from molseal.store import SqlStore, StructureRecord, WrappedKey
+from molseal.store import SqlStore, StructureRecord, VersionConflict, WrappedKey
 
 
 @pytest.fixture
@@ -30,8 +30,7 @@ def test_ensure_tenant_is_idempotent(store):
 def test_tenant_keys_round_trip(store):
     t = uuid4()
     store.ensure_tenant(t)
-    store.put_tenant_key(t, WrappedKey("data", 1, b"n" * 12, b"w1"))
-    store.put_tenant_key(t, WrappedKey("hmac", 1, b"m" * 12, b"w2"))
+    store.put_tenant_keys(t, [WrappedKey("data", 1, b"n" * 12, b"w1"), WrappedKey("hmac", 1, b"m" * 12, b"w2")])
     got = {(k.kind, k.version): k.wrapped for k in store.get_tenant_keys(t)}
     assert got == {("data", 1): b"w1", ("hmac", 1): b"w2"}
     assert store.get_tenant_keys(uuid4()) == []
@@ -41,8 +40,8 @@ def test_put_assigns_increasing_seq_and_changes_since_orders_by_it(store):
     t = uuid4()
     store.ensure_tenant(t)
     a, b = uuid4(), uuid4()
-    s1 = store.put_structure(rec(t, a), {"inchikey": b"h" * 32})
-    s2 = store.put_structure(rec(t, b), {})
+    s1 = store.put_structure(rec(t, a), {"inchikey": b"h" * 32}, None)
+    s2 = store.put_structure(rec(t, b), {}, None)
     assert (s1, s2) == (1, 2)
     assert store.seq_cursor(t) == 2
     assert [r.id for r in store.changes_since(t, 0)] == [a, b]
@@ -55,8 +54,8 @@ def test_update_replaces_row_and_key_rows_and_bumps_seq(store):
     t = uuid4()
     store.ensure_tenant(t)
     a = uuid4()
-    store.put_structure(rec(t, a, rv=1, ct=b"v1"), {"inchikey": b"h" * 32, "other": b"o" * 32})
-    s = store.put_structure(rec(t, a, rv=2, ct=b"v2"), {"inchikey": b"k" * 32})
+    store.put_structure(rec(t, a, rv=1, ct=b"v1"), {"inchikey": b"h" * 32, "other": b"o" * 32}, None)
+    s = store.put_structure(rec(t, a, rv=2, ct=b"v2"), {"inchikey": b"k" * 32}, 1)
     assert s == 2
     got = store.get_structure(t, a)
     assert got.row_version == 2 and got.ciphertext == b"v2" and got.seq == 2
@@ -70,10 +69,10 @@ def test_delete_is_a_write_that_bumps_seq_and_hides_keys(store):
     t = uuid4()
     store.ensure_tenant(t)
     a = uuid4()
-    store.put_structure(rec(t, a), {"inchikey": b"h" * 32})
-    s = store.put_structure(rec(t, a, rv=2, deleted=True), {})
+    store.put_structure(rec(t, a), {"inchikey": b"h" * 32}, None)
+    s = store.put_structure(rec(t, a, rv=2, deleted=True), {}, 1)
     assert s == 2
-    assert store.live_count(t) == 0
+    assert store.live_count(t) == 0 and store.tenant_state(t) == (2, 0)
     assert store.find_by_key(t, "inchikey", b"h" * 32) == []
     assert store.changes_since(t, 1)[0].deleted is True
 
@@ -83,15 +82,52 @@ def test_find_by_key_is_tenant_scoped_and_can_return_several(store):
     store.ensure_tenant(t1)
     store.ensure_tenant(t2)
     a, b, c = uuid4(), uuid4(), uuid4()
-    store.put_structure(rec(t1, a), {"inchikey": b"h" * 32})
-    store.put_structure(rec(t1, b), {"inchikey": b"h" * 32})
-    store.put_structure(rec(t2, c), {"inchikey": b"h" * 32})
+    store.put_structure(rec(t1, a), {"inchikey": b"h" * 32}, None)
+    store.put_structure(rec(t1, b), {"inchikey": b"h" * 32}, None)
+    store.put_structure(rec(t2, c), {"inchikey": b"h" * 32}, None)
     assert sorted(store.find_by_key(t1, "inchikey", b"h" * 32)) == sorted([a, b])
     assert store.find_by_key(t2, "inchikey", b"h" * 32) == [c]
-    assert store.live_count(t1) == 2
+    assert store.live_count(t1) == 2 and store.tenant_state(t1) == (2, 2)
 
 
 def test_get_structure_missing_is_none(store):
     t = uuid4()
     store.ensure_tenant(t)
     assert store.get_structure(t, uuid4()) is None
+
+
+def test_stale_expected_version_raises_and_writes_nothing(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    a = uuid4()
+    store.put_structure(rec(t, a), {}, None)
+    store.put_structure(rec(t, a, rv=2, ct=b"v2"), {}, 1)
+    with pytest.raises(VersionConflict):
+        store.put_structure(rec(t, a, rv=2, ct=b"stale"), {}, 1)     # read rv 1 before the write above
+    with pytest.raises(VersionConflict):
+        store.put_structure(rec(t, uuid4()), {}, 3)                   # expected a row that is not there
+    with pytest.raises(VersionConflict):
+        store.put_structure(rec(t, a, rv=1), {}, None)                # expected no row
+    assert store.get_structure(t, a).ciphertext == b"v2"
+    assert store.tenant_state(t) == (2, 1)
+
+
+def test_live_count_tracks_every_transition(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    a = uuid4()
+    steps = [(1, False, None, 1), (2, False, 1, 1), (3, True, 2, 0), (4, True, 3, 0), (5, False, 4, 1)]
+    for rv, deleted, expected, live in steps:   # new, live->live, live->dead, dead->dead, dead->live
+        store.put_structure(rec(t, a, rv=rv, deleted=deleted), {}, expected)
+        assert store.tenant_state(t)[1] == live == store.live_count(t)
+
+
+def test_changes_since_upto_bounds_the_range(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    ids = [uuid4() for _ in range(3)]
+    for i in ids:
+        store.put_structure(rec(t, i), {}, None)
+    assert [r.id for r in store.changes_since(t, 0, upto=2)] == ids[:2]
+    assert [r.id for r in store.changes_since(t, 1, upto=3)] == ids[1:]
+    assert store.changes_since(t, 2, upto=2) == []

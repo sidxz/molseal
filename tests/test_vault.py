@@ -5,7 +5,8 @@ import sqlalchemy as sa
 from sqlalchemy import delete, update
 
 from molseal import crypto, engine, keys
-from molseal.store import SqlStore, structure_keys, structures, tenants
+from molseal.payload import Payload
+from molseal.store import SqlStore, StructureRecord, VersionConflict, structure_keys, structures, tenant_keys, tenants
 from molseal.vault import NotFound, Vault, VaultError
 
 
@@ -39,7 +40,7 @@ def test_unparseable_smiles_writes_nothing(vault):
     with pytest.raises(engine.StructureError):
         vault.put(uuid4(), "garbage(")
     assert vault.store.seq_cursor(vault.tenant_id) == 0
-    assert vault.store.live_count(vault.tenant_id) == 0
+    assert vault.store.tenant_state(vault.tenant_id) == (0, 0)
 
 
 def test_read_your_writes_for_put_edit_and_delete(vault):
@@ -127,3 +128,67 @@ def test_no_snapshot_dir_means_save_fails_loudly(env):
     v = Vault(store, kp, uuid4())
     with pytest.raises(VaultError):
         v.save_snapshot()
+
+
+def test_a_stale_read_retries_instead_of_reusing_a_row_version(env, monkeypatch):
+    store, kp, _ = env
+    t = uuid4()
+    v1, v2 = Vault(store, kp, t), Vault(store, kp, t)
+    x = uuid4()
+    v1.put(x, "CCO")
+    stale = store.get_structure(t, x)                # v2 reads rv 1 ...
+    v1.put(x, "c1ccccc1")                            # ... v1 writes rv 2 ...
+    real_get = store.get_structure
+    calls = []
+    monkeypatch.setattr(store, "get_structure", lambda *a: calls.append(1) or (stale if len(calls) == 1 else real_get(*a)))
+    v2.put(x, "CCCl")                                # ... v2's first attempt conflicts, the retry writes rv 3
+    monkeypatch.setattr(store, "get_structure", real_get)
+    assert len(calls) == 2 and store.get_structure(t, x).row_version == 3
+    assert v1.substructure("CCCl") == [x] and v1.substructure("c1ccccc1") == []
+    assert v1.get(x).smiles == "CCCl"
+
+
+def test_a_conflict_that_never_clears_raises(vault, monkeypatch):
+    def always(*a):
+        raise VersionConflict("x")
+    monkeypatch.setattr(vault.store, "put_structure", always)
+    with pytest.raises(VaultError):
+        vault.put(uuid4(), "CCO")
+
+
+def test_missing_key_rows_on_a_tenant_with_data_refuse_to_mint(env):
+    store, kp, _ = env
+    t = uuid4()
+    Vault(store, kp, t).put(uuid4(), "CCO")
+    with store.engine.begin() as conn:
+        conn.execute(delete(tenant_keys).where(tenant_keys.c.tenant_id == t))
+    before = store.tenant_state(t), store.changes_since(t, 0)
+    with pytest.raises(VaultError, match=str(t)):
+        Vault(store, kp, t)
+    assert store.get_tenant_keys(t) == []
+    assert (store.tenant_state(t), store.changes_since(t, 0)) == before
+
+
+def test_an_unindexable_row_is_counted_and_does_not_loop_rebuilds(env, monkeypatch):
+    store, kp, _ = env
+    t = uuid4()
+    v1 = Vault(store, kp, t)
+    good, bad = uuid4(), uuid4()
+    v1.put(good, "CCO")
+    v1.put(bad, "CCN")
+    # A live row whose stored SMILES RDKit cannot read (written past canonicalize, as a bad version would).
+    nonce, ct = v1._seal(bad, 2, Payload("C1CC", {}, False))
+    store.put_structure(StructureRecord(t, bad, 2, 1, nonce, ct, False), {}, 1)
+    v2 = Vault(store, kp, t)
+    assert v2.index.unindexed == {bad} and len(v2) == 1
+    assert v1.substructure("CCN") == [] and v1.index.unindexed == {bad}    # old version no longer served
+    rebuilds = []
+    real = v2._rebuild_locked
+    monkeypatch.setattr(v2, "_rebuild_locked", lambda upto: rebuilds.append(upto) or real(upto))
+    v1.put(uuid4(), "CCC")
+    for _ in range(3):
+        v2.substructure("C")
+    v2.refresh()
+    assert rebuilds == []
+    v1.put(bad, "CCCl")                              # a later good version leaves the set
+    assert v2.substructure("CCCl") == [bad] and v2.index.unindexed == set()
