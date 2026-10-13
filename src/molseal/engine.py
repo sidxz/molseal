@@ -166,3 +166,80 @@ class StructureIndex:
         self._ensure_patterns(num_threads)
         return int(self._lib.CountMatches(q, recursionPossible=True, useChirality=False,
                                           useQueryQueryMatches=False, numThreads=num_threads))
+
+    # ----- deletes -----
+
+    def mark_dead(self, id: UUID, row_version: int) -> bool:
+        """Record a tombstone at row_version. Returns False if this version was already applied."""
+        if self.has(id, row_version):
+            return False
+        self._row_versions[id] = row_version
+        pos = self._pos_of.get(id)
+        if pos is not None and self._live[pos]:
+            self._live[pos] = False
+            self._order_dirty = True
+            self._apply_order()
+        return True
+
+    # ----- similarity -----
+
+    def similar(self, query_smiles: str, threshold: float = 0.7, top_k: int | None = None) -> list[tuple[UUID, float]]:
+        if len(self) == 0:
+            return []
+        q = _parse_query(query_smiles, "smiles")
+        qfp = morgan_matrix([q])[0]
+        qpop = int(np.bitwise_count(qfp).sum())
+        q64 = qfp.view(np.uint64)
+        n = self._n
+        sims = np.empty(n, dtype=np.float64)
+        step = 250_000
+        for s in range(0, n, step):
+            e = min(n, s + step)
+            rows = self._fps[s:e].view(np.uint64)
+            inter = np.bitwise_count(rows & q64).sum(axis=1).astype(np.float64)
+            denom = self._pop[s:e].astype(np.float64) + qpop - inter
+            sims[s:e] = np.divide(inter, denom, out=np.zeros_like(inter), where=denom > 0)
+        sims[~self._live[:n]] = -1.0
+        idx = np.flatnonzero(sims >= threshold)
+        if top_k is not None and len(idx) > top_k:
+            idx = idx[np.argpartition(-sims[idx], top_k - 1)[:top_k]]
+        idx = idx[np.argsort(-sims[idx], kind="stable")]
+        return [(self._ids[i], float(sims[i])) for i in idx]
+
+    # ----- serialization (the snapshot module encrypts these parts) -----
+
+    def to_parts(self) -> dict[str, bytes]:
+        n = self._n
+        meta = {"n": n, "last_seq": self.last_seq, "patterns": self._patterns}
+        return {
+            "meta": json.dumps(meta, sort_keys=True).encode("ascii"),
+            "lib": bytes(self._lib.Serialize()),
+            "ids": b"".join(i.bytes for i in self._ids),
+            "live": self._live[:n].tobytes(),
+            "rv": np.array([self._row_versions[i] for i in self._ids], dtype=np.uint32).tobytes(),
+            "fps": self._fps[:n].tobytes(),
+        }
+
+    @classmethod
+    def from_parts(cls, parts: dict[str, bytes]) -> "StructureIndex":
+        meta = json.loads(parts["meta"])
+        n = int(meta["n"])
+        self = cls()
+        self._lib = SubstructLibrary(parts["lib"])
+        self._patterns = bool(meta["patterns"])
+        self.last_seq = int(meta["last_seq"])
+        self._ids = [UUID(bytes=parts["ids"][i * 16 : (i + 1) * 16]) for i in range(n)]
+        live = np.frombuffer(parts["live"], dtype=bool)[:n]
+        rvs = np.frombuffer(parts["rv"], dtype=np.uint32)[:n]
+        fps = np.frombuffer(parts["fps"], dtype=np.uint8).reshape(n, FP_BYTES)
+        self._ensure_capacity(n)
+        self._live[:n] = live
+        self._fps[:n] = fps
+        self._pop[:n] = np.bitwise_count(fps).sum(axis=1).astype(np.uint16)
+        self._n = n
+        for pos, (id_, rv) in enumerate(zip(self._ids, rvs)):
+            self._pos_of[id_] = pos                    # later positions win
+            self._row_versions[id_] = max(int(rv), self._row_versions.get(id_, 0))
+        self._order_dirty = not bool(self._live[:n].all())
+        self._apply_order()
+        return self
