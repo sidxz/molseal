@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+# never commit key material or snapshots
+*.key
+snapshots/
+# benchmark data (ChEMBL download, slices, run outputs)
+bench/data/
+bench/results/
+.env
