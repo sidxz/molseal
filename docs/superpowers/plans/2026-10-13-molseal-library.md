@@ -6,7 +6,7 @@
 
 **Architecture:** Eight small modules under `src/molseal`. `crypto`, `keys` and `payload` are pure byte-level helpers. `store` is SQLAlchemy Core over four tables and knows no chemistry. `engine` wraps RDKit's SubstructLibrary plus a packed Morgan matrix and knows no SQL. `snapshot` serializes the engine to a chunk-encrypted file. `vault` is the per-tenant facade that is the only module importing all of them. `cli` drives the vault.
 
-**Tech Stack:** Python 3.13, uv, `rdkit==2025.3.3`, `cryptography`, `numpy>=2.0`, `sqlalchemy>=2.0`, `psycopg[binary]>=3.2`, pytest. SQLite for unit tests, PostgreSQL 16 (docker compose, port 5433) for integration tests.
+**Tech Stack:** Python 3.13, uv, `rdkit==2025.3.3`, `cryptography`, `numpy>=2.0`, `sqlalchemy>=2.0`, `psycopg[binary]>=3.2`, pytest. SQLite for unit tests, PostgreSQL 16 (docker compose, port 5439) for integration tests.
 
 **Spec:** `docs/superpowers/specs/2026-10-13-molseal-poc-design.md` (sections 1 to 7, 9, 10, 11, 13). The benchmark (spec section 8) is a separate plan written after this one lands.
 
@@ -40,7 +40,7 @@ Inputs the spec implies but did not spell out, each pinned by a test in the owni
 - Create: `pyproject.toml`, `LICENSE`, `README.md`, `src/molseal/__init__.py`, `tests/__init__.py`, `tests/test_scaffold.py`, `docker-compose.yml`
 
 **Interfaces:**
-- Produces: importable package `molseal` with `__version__`; `uv run pytest` works; compose file for a dev Postgres on port 5433.
+- Produces: importable package `molseal` with `__version__`; `uv run pytest` works; compose file for a dev Postgres on port 5439.
 
 - [ ] **Step 1: Write pyproject.toml**
 
@@ -97,7 +97,7 @@ Encrypted chemical structure store with in-process RDKit search. Proof of concep
 Design: `docs/superpowers/specs/2026-10-13-molseal-poc-design.md`.
 ```
 
-`docker-compose.yml` (dev Postgres for integration tests; port 5433 so it never collides with another local Postgres):
+`docker-compose.yml` (dev Postgres for integration tests; port 5439 so it never collides with another local Postgres):
 ```yaml
 services:
   db:
@@ -107,7 +107,7 @@ services:
       POSTGRES_PASSWORD: molseal
       POSTGRES_DB: molseal
     ports:
-      - "5433:5432"
+      - "5439:5432"
     volumes:
       - molseal-pgdata:/var/lib/postgresql/data
 volumes:
@@ -1018,7 +1018,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" -- src/molseal/store.p
 
 - [ ] **Step 1: Start the dev database once**
 
-Run: `docker compose up -d db` then `export MOLSEAL_TEST_DATABASE_URL=postgresql+psycopg://molseal:molseal@localhost:5433/molseal` (fish: `set -x MOLSEAL_TEST_DATABASE_URL postgresql+psycopg://molseal:molseal@localhost:5433/molseal`).
+Run: `docker compose up -d db` then `export MOLSEAL_TEST_DATABASE_URL=postgresql+psycopg://molseal:molseal@localhost:5439/molseal` (fish: `set -x MOLSEAL_TEST_DATABASE_URL postgresql+psycopg://molseal:molseal@localhost:5439/molseal`).
 
 - [ ] **Step 2: Write the fixture and the failing test**
 
@@ -2746,7 +2746,7 @@ Expected: all pass.
 
 With `docker compose up -d db` running and a key file:
 ```bash
-set -x MOLSEAL_DATABASE_URL postgresql+psycopg://molseal:molseal@localhost:5433/molseal
+set -x MOLSEAL_DATABASE_URL postgresql+psycopg://molseal:molseal@localhost:5439/molseal
 set -x MOLSEAL_KEY_FILE /tmp/molseal-dev.key
 set -x MOLSEAL_TENANT (uuidgen | tr A-F a-f)
 uv run molseal keygen $MOLSEAL_KEY_FILE
