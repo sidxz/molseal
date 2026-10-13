@@ -7,6 +7,7 @@ the InChIKey. Nothing under molseal/ except this file computes one.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import os
@@ -65,12 +66,13 @@ def cmd_keygen(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_load(args: argparse.Namespace) -> int:
-    vault = _vault(args)
-    src = Path(args.file)
-    sidecar = src.with_name(src.name + ".ids.tsv")
-    loaded = skipped = 0
-    with open(src) as fin, open(sidecar, "a") as fout:
+LOAD_CHUNK = 10_000
+
+
+def _parse_smiles_file(src: Path):
+    """Yield (id, canonical_smiles, inchikey) for each parseable line; count the rest."""
+    skipped = 0
+    with open(src) as fin:
         for line in fin:
             tok = line.split()
             if not tok or tok[0].startswith("#"):
@@ -79,16 +81,29 @@ def cmd_load(args: argparse.Namespace) -> int:
             if mol is None:
                 skipped += 1
                 continue
-            canonical, inchikey = Chem.MolToSmiles(mol), Chem.MolToInchiKey(mol)
-            id_ = uuid.uuid4()
-            vault.put(id_, canonical, {"inchikey": inchikey})
-            fout.write(f"{id_}\t{canonical}\t{inchikey}\n")
-            loaded += 1
-            if loaded % 1000 == 0:
-                print(f"{loaded} loaded", file=sys.stderr)
+            yield uuid.uuid4(), Chem.MolToSmiles(mol), Chem.MolToInchiKey(mol)
+    _parse_smiles_file.skipped = skipped   # deliberate small trick: keeps the generator simple
+
+
+def cmd_load(args: argparse.Namespace) -> int:
+    vault = _vault(args)
+    src = Path(args.file)
+    sidecar = src.with_name(src.name + ".ids.tsv")
+    loaded = 0
+    rows = _parse_smiles_file(src)
+    with open(sidecar, "a") as fout:
+        while True:
+            chunk = list(itertools.islice(rows, LOAD_CHUNK))
+            if not chunk:
+                break
+            vault.put_many([(id_, smi, {"inchikey": key}) for id_, smi, key in chunk])
+            for id_, smi, key in chunk:          # sidecar written only after the chunk committed
+                fout.write(f"{id_}\t{smi}\t{key}\n")
+            loaded += len(chunk)
+            print(f"{loaded} loaded", file=sys.stderr)
     if args.snapshot_dir:
         vault.save_snapshot()
-    print(f"loaded {loaded}, skipped {skipped}, sidecar {sidecar}")
+    print(f"loaded {loaded}, skipped {_parse_smiles_file.skipped}, sidecar {sidecar}")
     return 0
 
 

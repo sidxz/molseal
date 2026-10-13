@@ -89,3 +89,29 @@ def test_second_writer_with_the_same_read_version_gets_a_conflict(pg_store, pg_e
     got = pg_store.get_structure(t, a)
     assert got.row_version == 2 and got.ciphertext == b"A"
     assert pg_store.tenant_state(t) == (2, 1)
+
+
+def test_a_batch_holds_the_cursor_lock_so_a_single_writer_lands_after_it(pg_store, pg_engine):
+    t = uuid4()
+    pg_store.ensure_tenant(t)
+    ids = [uuid4() for _ in range(3)]
+    other = uuid4()
+    got = {}
+
+    conn_a = pg_engine.connect()
+    tx_a = conn_a.begin()
+    end = conn_a.execute(update(tenants).where(tenants.c.tenant_id == t)
+                         .values(seq_cursor=tenants.c.seq_cursor + 3)
+                         .returning(tenants.c.seq_cursor)).scalar_one()
+    assert end == 3
+
+    th = threading.Thread(target=lambda: got.setdefault("seq", pg_store.put_structure(_rec(t, other), {}, None)))
+    th.start()
+    time.sleep(0.5)
+    assert th.is_alive()
+    tx_a.rollback()
+    conn_a.close()
+    th.join(timeout=5)
+    assert got["seq"] == 1, "the rolled-back batch consumed nothing; the single writer got the next number"
+    seqs = pg_store.put_structures([(_rec(t, i), {}, None) for i in ids])
+    assert seqs == [2, 3, 4]

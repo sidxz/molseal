@@ -11,6 +11,8 @@ and retry the whole read-seal-write cycle on conflict, so two writers never reus
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterable
+from itertools import batched
 from pathlib import Path
 from uuid import UUID
 
@@ -118,6 +120,43 @@ class Vault:
             self._advance(seq)
         return seq
 
+    def put_many(self, items: Iterable[tuple[UUID, str, dict[str, str] | None]], chunk: int = 10_000) -> int:
+        """Bulk ingest. Each chunk is canonicalized and encrypted in Python, written in one store
+        transaction (consecutive, commit-ordered sequence numbers), and appended to the index once.
+        Raises before any write if a chunk holds a duplicate id or an unparseable SMILES."""
+        total = 0
+        for group in batched(items, chunk):
+            total += self._put_chunk(list(group))
+        return total
+
+    def _put_chunk(self, group: list[tuple[UUID, str, dict[str, str] | None]]) -> int:
+        ids = [i for i, _, _ in group]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate ids in chunk")
+        prepared = [(i, canonicalize(s), dict(k or {})) for i, s, k in group]   # StructureError before any write
+        with self._lock:
+            for _ in range(WRITE_ATTEMPTS):
+                existing = self.store.get_structures(self.tenant_id, ids)
+                batch, items = [], []
+                for i, canonical, ek in prepared:
+                    ex = existing.get(i)
+                    expected = None if ex is None else ex.row_version
+                    rv = 1 if expected is None else expected + 1
+                    nonce, ct = self._seal(i, rv, Payload(canonical, ek, False))
+                    rec = StructureRecord(self.tenant_id, i, rv, self.keys.data_key_version, nonce, ct, False)
+                    batch.append((rec, {k: exact_key_hmac(self.keys.hmac_key, k, v) for k, v in ek.items()}, expected))
+                    items.append((i, canonical, rv))
+                try:
+                    seqs = self.store.put_structures(batch)
+                    break
+                except VersionConflict:
+                    continue
+            else:
+                raise VaultError(f"chunk of {len(group)}: row_version conflict persisted after {WRITE_ATTEMPTS} attempts")
+            self.index.add_batch(items, self.num_threads)
+            self._advance(seqs[0], seqs[-1])
+        return len(batch)
+
     def _write(self, id: UUID, payload: Payload, hmacs: dict[str, bytes]) -> tuple[int, int]:
         """Read the row version, seal at the next one, compare-and-set. Retries on conflict."""
         for _ in range(WRITE_ATTEMPTS):
@@ -134,10 +173,11 @@ class Vault:
                 continue
         raise VaultError(f"{id}: row_version conflict persisted after {WRITE_ATTEMPTS} attempts")
 
-    def _advance(self, seq: int) -> None:
-        """After our own write: if nothing else landed in between, remember seq; otherwise catch up."""
-        if seq == self.index.last_seq + 1:
-            self.index.last_seq = seq
+    def _advance(self, first_seq: int, last_seq: int | None = None) -> None:
+        """After our own write(s): if nothing else landed in between, remember the last seq; otherwise catch up."""
+        last_seq = first_seq if last_seq is None else last_seq
+        if first_seq == self.index.last_seq + 1:
+            self.index.last_seq = last_seq
         else:
             self._refresh_locked(*self.store.tenant_state(self.tenant_id))
 

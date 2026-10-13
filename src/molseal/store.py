@@ -99,6 +99,8 @@ class StructureStore(Protocol):
     def put_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None: ...
     def put_structure(self, rec: StructureRecord, key_hmacs: dict[str, bytes],
                       expected_row_version: int | None) -> int: ...
+    def get_structures(self, tenant_id: UUID, ids: list[UUID]) -> dict[UUID, StructureRecord]: ...
+    def put_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes], int | None]]) -> list[int]: ...
     def get_structure(self, tenant_id: UUID, id: UUID) -> StructureRecord | None: ...
     def changes_since(self, tenant_id: UUID, seq: int, limit: int = 10000,
                       upto: int | None = None) -> list[StructureRecord]: ...
@@ -184,6 +186,67 @@ class SqlStore:
                     dict(tenant_id=rec.tenant_id, id=rec.id, kind=kind, hmac=h) for kind, h in key_hmacs.items()
                 ])
             return int(seq)
+
+    def get_structures(self, tenant_id: UUID, ids: list[UUID]) -> dict[UUID, StructureRecord]:
+        if not ids:
+            return {}
+        with self.engine.connect() as conn:
+            rows = conn.execute(select(structures)
+                                .where(structures.c.tenant_id == tenant_id, structures.c.id.in_(ids))).all()
+        return {r.id: _record(r) for r in rows}
+
+    def put_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes], int | None]]) -> list[int]:
+        """One transaction for a whole batch: the cursor advances by the batch size (holding the tenant
+        lock to commit, so the numbers stay consecutive and commit-ordered), every row is compare-and-set
+        against its expected version, new rows are bulk-inserted, existing rows updated, the live count
+        adjusted once, and key rows replaced. Any conflict rolls the whole batch back."""
+        if not batch:
+            return []
+        ids = [rec.id for rec, _, _ in batch]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate ids in batch")
+        tenant_id = batch[0][0].tenant_id
+        n = len(batch)
+        with self.engine.begin() as conn:
+            end = conn.execute(
+                update(tenants).where(tenants.c.tenant_id == tenant_id)
+                .values(seq_cursor=tenants.c.seq_cursor + n).returning(tenants.c.seq_cursor)
+            ).scalar_one()
+            first = int(end) - n + 1
+            cur = {r.id: (r.row_version, bool(r.deleted)) for r in conn.execute(
+                select(structures.c.id, structures.c.row_version, structures.c.deleted)
+                .where(structures.c.tenant_id == tenant_id, structures.c.id.in_(ids)))}
+            for rec, _, expected in batch:
+                found = cur[rec.id][0] if rec.id in cur else None
+                if found != expected:
+                    raise VersionConflict(f"{rec.id}: expected row_version {expected}, found {found}")
+            delta = sum(int(not rec.deleted) - int(rec.id in cur and not cur[rec.id][1]) for rec, _, _ in batch)
+            if delta:
+                conn.execute(update(tenants).where(tenants.c.tenant_id == tenant_id)
+                             .values(live_count=tenants.c.live_count + delta))
+            now = datetime.now(timezone.utc)
+            inserts, seqs = [], []
+            for offset, (rec, _, _) in enumerate(batch):
+                seq = first + offset
+                seqs.append(seq)
+                values = dict(row_version=rec.row_version, data_key_version=rec.data_key_version,
+                              nonce=rec.nonce, ciphertext=rec.ciphertext, deleted=rec.deleted, seq=seq,
+                              updated_at=now)
+                if rec.id in cur:
+                    conn.execute(update(structures)
+                                 .where(structures.c.tenant_id == tenant_id, structures.c.id == rec.id)
+                                 .values(**values))
+                else:
+                    inserts.append(dict(tenant_id=tenant_id, id=rec.id, **values))
+            if inserts:
+                conn.execute(insert(structures), inserts)
+            conn.execute(delete(structure_keys)
+                         .where(structure_keys.c.tenant_id == tenant_id, structure_keys.c.id.in_(ids)))
+            key_rows = [dict(tenant_id=tenant_id, id=rec.id, kind=kind, hmac=h)
+                        for rec, hmacs, _ in batch for kind, h in hmacs.items()]
+            if key_rows:
+                conn.execute(insert(structure_keys), key_rows)
+            return seqs
 
     def get_structure(self, tenant_id: UUID, id: UUID) -> StructureRecord | None:
         with self.engine.connect() as conn:

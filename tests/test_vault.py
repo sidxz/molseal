@@ -192,3 +192,38 @@ def test_an_unindexable_row_is_counted_and_does_not_loop_rebuilds(env, monkeypat
     assert rebuilds == []
     v1.put(bad, "CCCl")                              # a later good version leaves the set
     assert v2.substructure("CCCl") == [bad] and v2.index.unindexed == set()
+
+
+def test_put_many_loads_in_chunks_with_consecutive_seqs(vault):
+    from tests.mols import molecules
+    smiles = molecules()[:25]
+    ids = [uuid4() for _ in smiles]
+    n = vault.put_many([(i, s, {"inchikey": f"K{k}"}) for k, (i, s) in enumerate(zip(ids, smiles))], chunk=10)
+    assert n == 25 and len(vault) == 25
+    assert vault.store.tenant_state(vault.tenant_id) == (25, 25)
+    assert vault.find_exact("inchikey", "K7") == [ids[7]]
+    assert set(vault.substructure("[#6]", kind="smarts")) == set(ids)
+    assert vault.index.last_seq == 25
+
+
+def test_put_many_edits_existing_ids_and_rejects_duplicates_and_garbage(vault):
+    a, b = uuid4(), uuid4()
+    vault.put_many([(a, "CCO", None), (b, "CCN", None)])
+    vault.put_many([(a, "c1ccccc1", None)])
+    assert vault.substructure("CCO") == [] and vault.substructure("c1ccccc1") == [a]
+    assert vault.get(a).smiles == "c1ccccc1"
+    with pytest.raises(ValueError):
+        vault.put_many([(b, "CCO", None), (b, "CCN", None)])
+    cursor_before = vault.store.tenant_state(vault.tenant_id)
+    with pytest.raises(engine.StructureError):
+        vault.put_many([(uuid4(), "CCO", None), (uuid4(), "garbage(", None)])
+    assert vault.store.tenant_state(vault.tenant_id) == cursor_before
+
+
+def test_a_second_instance_sees_a_bulk_load(env):
+    store, kp, snap = env
+    t = uuid4()
+    v1, v2 = Vault(store, kp, t), Vault(store, kp, t)
+    ids = [uuid4() for _ in range(12)]
+    v1.put_many([(i, "CCO", None) for i in ids], chunk=5)
+    assert set(v2.substructure("CCO")) == set(ids)
