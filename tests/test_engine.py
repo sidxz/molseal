@@ -181,3 +181,45 @@ def test_parts_round_trip_preserves_results_and_dead_mask():
     assert back.has(a, 2) and back.has(c, 2) and not back.has(c, 3)
     assert {i for i, _ in back.similar("c1ccccc1", threshold=0.99)} == {b}
     assert back.add_batch([(uuid4(), "CCO", 1)]) == 1
+
+
+def test_append_after_an_applied_order_is_visible_and_order_is_lazy(monkeypatch):
+    idx = engine.StructureIndex()
+    a, b, c = uuid4(), uuid4(), uuid4()
+    idx.add_batch([(a, "CCO", 1), (b, "CCO", 1)])
+    idx.mark_dead(a, 2)
+    assert idx.substructure("CCO") == [b]           # order applied here, once
+    calls = []
+    real = idx._lib.SetSearchOrder
+    monkeypatch.setattr(idx, "_lib", type("L", (), {"__getattr__": lambda s, n: getattr(real.__self__, n),
+                                                    "SetSearchOrder": lambda s, o: calls.append(o) or real(o)})())
+    for i in range(3):
+        idx.add_batch([(uuid4(), "CCN", 1)])
+    idx.mark_dead(b, 2)
+    assert calls == []                              # nothing applied until a search
+    idx.add_batch([(c, "CCO", 1)])
+    assert idx.substructure("CCO") == [c] and idx.count_substructure("CCO") == 1
+    assert len(calls) == 1
+
+
+def test_unparseable_rows_are_recorded_and_round_trip():
+    idx = engine.StructureIndex()
+    a, b = uuid4(), uuid4()
+    idx.add_batch([(a, "CCO", 1), (b, "CCN", 1)])
+    assert idx.add_batch([(a, "C1CC", 2)]) == 0
+    assert idx.unindexed == {a} and idx.has(a, 2) and len(idx) == 1
+    assert idx.substructure("CCO") == []            # the old version is not served
+    back = engine.StructureIndex.from_parts(idx.to_parts())
+    assert back.unindexed == {a}
+    back.add_batch([(a, "CCCl", 3)])
+    assert back.unindexed == set() and back.substructure("CCCl") == [a]
+    back.mark_dead(b, 2)
+    idx.mark_dead(a, 3)
+    assert idx.unindexed == set()
+
+
+def test_canonicalize_rejects_output_that_does_not_re_parse(monkeypatch):
+    real = engine.Chem.MolFromSmiles
+    monkeypatch.setattr(engine.Chem, "MolFromSmiles", lambda s: real(s) if s == "OCC" else None)
+    with pytest.raises(engine.StructureError, match="re-parse"):
+        engine.canonicalize("OCC")

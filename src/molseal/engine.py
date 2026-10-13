@@ -34,7 +34,10 @@ def canonicalize(smiles: str) -> str:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise StructureError(f"cannot parse SMILES: {smiles!r}")
-    return Chem.MolToSmiles(mol)
+    out = Chem.MolToSmiles(mol)
+    if Chem.MolFromSmiles(out) is None:     # the index re-parses what we store, so it must parse
+        raise StructureError(f"canonical SMILES does not re-parse: {smiles!r}")
+    return out
 
 
 def parse_many(smiles: Sequence[str]) -> list[Chem.Mol | None]:
@@ -74,7 +77,9 @@ class StructureIndex:
         self._live = np.zeros(0, dtype=bool)
         self._fps = np.zeros((0, FP_BYTES), dtype=np.uint8)
         self._pop = np.zeros(0, dtype=np.uint16)
-        self._order_dirty = False       # True once any position has died
+        self._order_dirty = False       # the library's search order is out of date
+        self._ordered = False           # a search order has been applied at least once
+        self.unindexed: set[UUID] = set()   # ids whose current live version RDKit could not parse
         self.last_seq = 0
 
     # ----- bookkeeping -----
@@ -99,31 +104,41 @@ class StructureIndex:
         pop = np.zeros(cap, dtype=np.uint16); pop[: self._n] = self._pop[: self._n]
         self._live, self._fps, self._pop, self._cap = live, fps, pop, cap
 
-    def _apply_order(self) -> None:
+    def _ensure_order(self) -> None:
         """RDKit's library cannot delete; a search order listing only live positions is the sanctioned
-        workaround. AddMol does not extend an existing order, so this runs after every append."""
+        workaround. AddMol does not extend an existing order, so deaths and (once an order exists)
+        appends mark it dirty, and it is applied once here, before a search. Callers guard
+        len(self) == 0: an empty order makes RDKit search every position."""
         if self._order_dirty:
-            self._lib.SetSearchOrder([int(p) for p in np.flatnonzero(self._live[: self._n])])
+            self._lib.SetSearchOrder(np.flatnonzero(self._live[: self._n]).tolist())
+            self._order_dirty = False
+            self._ordered = True
 
     # ----- ingest -----
 
     def add_batch(self, items: Sequence[tuple[UUID, str, int]], num_threads: int = -1) -> int:
         """Add (id, canonical_smiles, row_version) items. Skips rows already seen at this version
-        or newer, and rows RDKit cannot parse. An id seen before gets its old position marked dead."""
+        or newer. An id seen before gets its old position marked dead. A row RDKit cannot parse is
+        recorded at its version, its old position dies, and its id goes into self.unindexed."""
         fresh = [it for it in items if not self.has(it[0], it[2])]
         if not fresh:
             return 0
         mols = parse_many([s for _, s, _ in fresh])
-        keep = [(it, m) for it, m in zip(fresh, mols) if m is not None]
+        keep = []
+        for (id_, s, rv), m in zip(fresh, mols):
+            if m is None:
+                self._kill(id_)
+                self._row_versions[id_] = rv
+                self.unindexed.add(id_)
+            else:
+                keep.append(((id_, s, rv), m))
         if not keep:
             return 0
         fps = morgan_matrix([m for _, m in keep], num_threads)
         self._ensure_capacity(len(keep))
         for (id_, _, rv), m in keep:
-            old = self._pos_of.get(id_)
-            if old is not None:
-                self._live[old] = False
-                self._order_dirty = True
+            self._kill(id_)
+            self.unindexed.discard(id_)
             self._lib.AddMol(m)
             pos = self._n
             self._ids.append(id_)
@@ -134,7 +149,7 @@ class StructureIndex:
         start = self._n - len(keep)
         self._fps[start : self._n] = fps
         self._pop[start : self._n] = np.bitwise_count(fps).sum(axis=1).astype(np.uint16)
-        self._apply_order()
+        self._order_dirty = self._order_dirty or self._ordered
         return len(keep)
 
     def _ensure_patterns(self, num_threads: int) -> None:
@@ -150,6 +165,7 @@ class StructureIndex:
             return []
         q = _parse_query(query, kind)
         self._ensure_patterns(num_threads)
+        self._ensure_order()
         hits = self._lib.GetMatches(q, recursionPossible=True, useChirality=False, useQueryQueryMatches=False,
                                     numThreads=num_threads, maxResults=-1 if max_results is None else int(max_results))
         out: dict[UUID, None] = {}
@@ -164,6 +180,7 @@ class StructureIndex:
             return 0
         q = _parse_query(query, kind)
         self._ensure_patterns(num_threads)
+        self._ensure_order()
         return int(self._lib.CountMatches(q, recursionPossible=True, useChirality=False,
                                           useQueryQueryMatches=False, numThreads=num_threads))
 
@@ -174,12 +191,15 @@ class StructureIndex:
         if self.has(id, row_version):
             return False
         self._row_versions[id] = row_version
+        self._kill(id)
+        self.unindexed.discard(id)
+        return True
+
+    def _kill(self, id: UUID) -> None:
         pos = self._pos_of.get(id)
         if pos is not None and self._live[pos]:
             self._live[pos] = False
             self._order_dirty = True
-            self._apply_order()
-        return True
 
     # ----- similarity -----
 
@@ -210,7 +230,8 @@ class StructureIndex:
 
     def to_parts(self) -> dict[str, bytes]:
         n = self._n
-        meta = {"n": n, "last_seq": self.last_seq, "patterns": self._patterns}
+        meta = {"n": n, "last_seq": self.last_seq, "patterns": self._patterns,
+                "unindexed": sorted(str(i) for i in self.unindexed)}
         return {
             "meta": json.dumps(meta, sort_keys=True).encode("ascii"),
             "lib": bytes(self._lib.Serialize()),
@@ -240,6 +261,6 @@ class StructureIndex:
         for pos, (id_, rv) in enumerate(zip(self._ids, rvs)):
             self._pos_of[id_] = pos                    # later positions win
             self._row_versions[id_] = max(int(rv), self._row_versions.get(id_, 0))
+        self.unindexed = {UUID(i) for i in meta.get("unindexed", [])}
         self._order_dirty = not bool(self._live[:n].all())
-        self._apply_order()
         return self
