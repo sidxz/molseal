@@ -136,8 +136,32 @@ def _column_bytes(store: SqlStore, tenant: uuid.UUID) -> bytes:
     return b"\x00".join(parts)
 
 
-def _hits(blob: bytes, needles: list[bytes]) -> int:
-    return sum(1 for n in needles if n in blob)
+def control_marker(tenant: uuid.UUID) -> bytes:
+    """The planted control value. Fixed per tenant, so a dump taken after an earlier run carries it."""
+    return b"MOLSEAL-CONTROL-PLAINTEXT-" + tenant.hex.encode()
+
+
+def _found(blob: bytes, lower: bytes, needle: bytes) -> bool:
+    """Raw bytes, or the hex digits PostgreSQL prints for bytea (`\\x...` in pg_dump COPY data and
+    statement logs). Hex is matched case-insensitively against a lowercased copy of the blob."""
+    return needle in blob or needle.hex().encode() in lower
+
+
+def _scan(blob: bytes, needles: list[bytes], control: bytes) -> tuple[int, bool]:
+    lower = blob.lower()
+    return sum(_found(blob, lower, n) for n in needles), _found(blob, lower, control)
+
+
+def _pg_dump(db_url: str) -> bytes | None:
+    if shutil.which("pg_dump") is None:
+        print("pg_dump not found on PATH; the dump leg did not run", file=sys.stderr)
+        return None
+    url = db_url.replace("postgresql+psycopg://", "postgresql://")
+    try:
+        return subprocess.run(["pg_dump", "-Fp", "--compress=0", "--dbname", url], capture_output=True, check=True).stdout
+    except subprocess.CalledProcessError as exc:
+        print(f"pg_dump failed: {exc.stderr.decode(errors='replace').strip()}", file=sys.stderr)
+        return None
 
 
 def cmd_absence_check(args: argparse.Namespace) -> int:
@@ -147,35 +171,35 @@ def cmd_absence_check(args: argparse.Namespace) -> int:
     needles = [n.encode() for n in raw if len(n) >= MIN_NEEDLE]
     skipped_short = len(raw) - len(needles)
 
-    control = b"MOLSEAL-CONTROL-PLAINTEXT-" + os.urandom(6).hex().encode()
-    with store.engine.begin() as conn:      # raw insert: no cursor bump, seq 0 is never read by a vault
+    # The control row stays planted: seq 0 and tombstoned, so no vault ever reads it, and a dump taken
+    # after any earlier run carries it. Each leg that can see it must find it, or the leg proves nothing.
+    control = control_marker(tenant)
+    with store.engine.begin() as conn:      # raw write: no cursor bump, no live-count change
+        conn.execute(delete(structures).where(structures.c.tenant_id == tenant, structures.c.id == CONTROL_ID))
         conn.execute(insert(structures).values(tenant_id=tenant, id=CONTROL_ID, row_version=1, data_key_version=1,
                                                nonce=b"\x00" * 12, ciphertext=control, deleted=True, seq=0,
                                                updated_at=datetime.now(timezone.utc)))
-    try:
-        blob = _column_bytes(store, tenant)
-        db_hits = _hits(blob, needles)
-        control_found = control in blob
-        dump_hits = None
-        if args.run_pg_dump:
-            if shutil.which("pg_dump") is None:
-                print("pg_dump not found; skipping dump scan", file=sys.stderr)
-            else:
-                url = args.db.replace("postgresql+psycopg://", "postgresql://")
-                res = subprocess.run(["pg_dump", "-Fp", "--compress=0", "--dbname", url], capture_output=True, check=True)
-                dump_hits = _hits(res.stdout, needles)
-                control_found = control_found and control in res.stdout
-        elif args.dump:
-            dump = Path(args.dump).read_bytes()
-            dump_hits = _hits(dump, needles)
-    finally:
-        with store.engine.begin() as conn:
-            conn.execute(delete(structures).where(structures.c.tenant_id == tenant, structures.c.id == CONTROL_ID))
-    log_hits = _hits(Path(args.log).read_bytes(), needles) if args.log else None
+    db_hits, db_control = _scan(_column_bytes(store, tenant), needles, control)
+    ok = db_hits == 0 and db_control
 
-    ok = db_hits == 0 and not dump_hits and not log_hits and control_found
+    dump_hits = dump_control = None
+    if args.run_pg_dump or args.dump:
+        dump = _pg_dump(args.db) if args.run_pg_dump else Path(args.dump).read_bytes()
+        if dump is None:
+            ok = False
+        else:
+            dump_hits, dump_control = _scan(dump, needles, control)
+            ok = ok and dump_hits == 0 and dump_control
+
+    log_hits = None
+    if args.log:      # captured before this run, so it cannot hold the control
+        log_hits, _ = _scan(Path(args.log).read_bytes(), needles, control)
+        ok = ok and log_hits == 0
+
     print(json.dumps({"needles": len(needles), "skipped_short": skipped_short, "db_hits": db_hits,
-                      "dump_hits": dump_hits, "log_hits": log_hits, "control_found": control_found, "ok": ok}, indent=1))
+                      "dump_hits": dump_hits, "log_hits": log_hits,
+                      "control_found": {"db": db_control, "dump": dump_control},
+                      "log_control": "not applicable", "ok": ok}, indent=1))
     return 0 if ok else 1
 
 
