@@ -131,3 +131,56 @@ def test_changes_since_upto_bounds_the_range(store):
     assert [r.id for r in store.changes_since(t, 0, upto=2)] == ids[:2]
     assert [r.id for r in store.changes_since(t, 1, upto=3)] == ids[1:]
     assert store.changes_since(t, 2, upto=2) == []
+
+
+def test_put_structures_assigns_consecutive_seqs_and_counts_live(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    ids = [uuid4() for _ in range(5)]
+    seqs = store.put_structures([(rec(t, i), {"inchikey": bytes([n]) * 32}, None) for n, i in enumerate(ids)])
+    assert seqs == [1, 2, 3, 4, 5]
+    assert store.tenant_state(t) == (5, 5)
+    assert [r.id for r in store.changes_since(t, 0)] == ids
+    assert store.find_by_key(t, "inchikey", bytes([2]) * 32) == [ids[2]]
+    got = store.get_structures(t, ids[:2] + [uuid4()])
+    assert set(got) == set(ids[:2]) and got[ids[0]].seq == 1
+
+
+def test_put_structures_rejects_duplicate_ids_before_writing(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    a = uuid4()
+    with pytest.raises(ValueError):
+        store.put_structures([(rec(t, a), {}, None), (rec(t, a), {}, None)])
+    assert store.tenant_state(t) == (0, 0)
+
+
+def test_put_structures_is_all_or_nothing_on_a_stale_version(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    a, b = uuid4(), uuid4()
+    store.put_structure(rec(t, a), {}, None)
+    with pytest.raises(VersionConflict):
+        store.put_structures([(rec(t, b), {}, None), (rec(t, a, rv=2), {}, 5)])
+    assert store.tenant_state(t) == (1, 1)
+    assert store.get_structure(t, b) is None
+
+
+def test_put_structures_updates_existing_rows_and_adjusts_live_count(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    a, b = uuid4(), uuid4()
+    store.put_structures([(rec(t, a), {"k": b"a" * 32}, None), (rec(t, b), {}, None)])
+    seqs = store.put_structures([(rec(t, a, rv=2, ct=b"v2"), {"k": b"c" * 32}, 1),
+                                 (rec(t, b, rv=2, deleted=True), {}, 1)])
+    assert seqs == [3, 4]
+    assert store.tenant_state(t) == (4, 1)
+    assert store.get_structure(t, a).ciphertext == b"v2"
+    assert store.find_by_key(t, "k", b"a" * 32) == [] and store.find_by_key(t, "k", b"c" * 32) == [a]
+
+
+def test_put_structures_empty_batch_is_a_no_op(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    assert store.put_structures([]) == []
+    assert store.tenant_state(t) == (0, 0)
