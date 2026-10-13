@@ -95,7 +95,7 @@ all of them.
 Four tables, all keyed by tenant first.
 
 ```
-tenants          (tenant_id uuid PK, seq_cursor bigint, data_key_version int, hmac_key_version int)
+tenants          (tenant_id uuid PK, seq_cursor bigint, live_count bigint, data_key_version int, hmac_key_version int)
 tenant_keys      (tenant_id, kind text in ('data','hmac'), version int, nonce bytea, wrapped bytea,
                   PK (tenant_id, kind, version))
 structures       (tenant_id, id uuid, row_version int, data_key_version int, nonce bytea,
@@ -256,18 +256,30 @@ Expected serialize time at full ChEMBL: under ten seconds.
 ```python
 class StructureStore(Protocol):
     def ensure_tenant(self, tenant_id) -> TenantRow
+    def tenant_state(self, tenant_id) -> tuple[int, int]            # (seq_cursor, live_count), one statement
     def get_tenant_keys(self, tenant_id) -> list[WrappedKey]
-    def put_tenant_key(self, tenant_id, kind, version, nonce, wrapped) -> None
-    def put_structure(self, rec: StructureRecord, keys: list[KeyRow]) -> int   # returns seq
+    def put_tenant_keys(self, tenant_id, keys: list[WrappedKey]) -> None   # one transaction
+    def put_structure(self, rec, key_hmacs, expected_row_version) -> int   # compare-and-set; raises VersionConflict
+    def put_structures(self, batch) -> list[int]                     # milestone 2: one transaction, cursor += len(batch)
     def get_structure(self, tenant_id, id) -> StructureRecord | None
-    def changes_since(self, tenant_id, seq, limit) -> list[StructureRecord]
+    def changes_since(self, tenant_id, seq, limit, upto=None) -> list[StructureRecord]
     def max_seq(self, tenant_id) -> int
-    def live_count(self, tenant_id) -> int
     def find_by_key(self, tenant_id, kind, hmac) -> list[UUID]    # live rows only
 ```
 
 `SqlStore` implements it with SQLAlchemy Core and runs its test suite on SQLite and PostgreSQL.
-`put_structure` is one transaction: bump cursor, upsert the structure row, replace its key rows.
+`put_structure` is one transaction: bump the cursor (taking the tenant row lock), compare the row's
+current `row_version` with the expected one and raise `VersionConflict` on mismatch, upsert the row,
+replace its key rows, and adjust `tenants.live_count` by the row's live-state transition. The vault
+retries a conflicting write up to five times.
+
+**Bulk ingestion (milestone 2, agreed 2026-10-13).** `put_structures(batch)` does the same for a whole
+batch in one transaction: the cursor advances by the batch size so sequence numbers stay consecutive
+and commit-ordered, rows and key rows are bulk-inserted, compare-and-set still applies per row. The
+vault exposes `put_many(items, chunk=10_000)`, which canonicalizes and encrypts a chunk in Python,
+calls `put_structures`, and appends the chunk to the index once. The ChEMBL loader is its first
+consumer. The library stays synchronous: its work is CPU-bound in RDKit and the cipher, so consumers
+call `put_many` from a worker thread or a workflow activity; no async API is planned.
 
 ## 8. Benchmark
 
@@ -278,6 +290,11 @@ redistributed). The loader canonicalizes with RDKit in a process pool, computes 
 example exact key, and writes a slice of N rows to a local file ignored by git.
 
 Ladder: **N = 500k first**, then 1M, then full (~2.4M). Each run records its N.
+
+The loader is resumable: it writes the slice to a local file once, loads it through `put_many` in
+chunks of 10k, and records the last completed chunk in a progress file next to the slice, so a run
+that dies at chunk 180 resumes at 180. Before the first benchmark the loader runs a 10k slice and the
+absence check (section 9) must pass on it, including the dump leg; that is milestone 2's first gate.
 
 ### 8.2 Containers and sizing
 
@@ -394,12 +411,18 @@ policy on open-sourcing work done on its time.
 ## 13. Out of scope (documented, not built)
 
 Key rotation; tautomer-insensitive search; stereo-aware search; molfile storage; multi-process
-invalidation; async API; KMS key providers; any consumer adapter; readers–writer lock.
+invalidation; async API (the library is synchronous by design, see section 7); KMS key providers;
+any consumer adapter; readers–writer lock; schema migrations (the POC creates tables with
+`create_all`; an existing database gets new columns by hand).
 
-## 14. Milestones (detail in the implementation plan)
+## 14. Milestones (detail in the implementation plans)
 
-1. Library with unit, store and vault tests green; absence check with negative control passing on
-   a 10k slice.
-2. Benchmark at N = 500k: parity contract green, timings and leakage report produced.
+1. **Done 2026-10-13, merged to main, tag `milestone-1`.** Library with unit, store and vault tests
+   green (101 tests with PostgreSQL); absence check with negative control passing on the 438-molecule
+   offline set with a real dump. The final review's findings (hex scanning in the absence check,
+   compare-and-set on writes, transactional live count, lazy search order, safe key bootstrap,
+   re-parse check on canonical SMILES) are fixed and recorded in `docs/superpowers/reviews/`.
+2. Benchmark at N = 500k: 10k absence run first, then `put_many` and the resumable loader, the
+   cartridge container, the query set, parity contract green, timings and leakage report produced.
 3. N = 1M.
 4. Full ChEMBL; write-up draft.
