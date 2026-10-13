@@ -53,3 +53,35 @@ def test_missing_connection_options_fail_cleanly(monkeypatch, capsys):
         monkeypatch.delenv(var, raising=False)
     assert cli.main(["count", "CCO"]) == 2
     assert "--db" in capsys.readouterr().err
+
+
+def test_absence_check_passes_and_finds_its_control(ctx, capsys):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    capsys.readouterr()
+    sidecar = src.with_name(src.name + ".ids.tsv")
+    assert cli.main(["absence-check", str(sidecar), *common]) == 0
+    out = capsys.readouterr().out
+    assert '"control_found": true' in out and '"db_hits": 0' in out
+
+
+def test_absence_check_catches_a_plaintext_log(ctx, capsys, tmp_path):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    capsys.readouterr()
+    sidecar = src.with_name(src.name + ".ids.tsv")
+    leaked = sidecar.read_text().splitlines()[0].split("\t")[2]      # an InChIKey
+    log = tmp_path / "postgres.log"
+    log.write_text(f"LOG: statement: INSERT ... '{leaked}'\n")
+    assert cli.main(["absence-check", str(sidecar), "--log", str(log), *common]) == 1
+    assert '"log_hits": 1' in capsys.readouterr().out
+
+
+def test_leak_report_prints_numbers(ctx, capsys):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    capsys.readouterr()
+    sidecar = src.with_name(src.name + ".ids.tsv")
+    assert cli.main(["leak-report", str(sidecar), *common]) == 0
+    out = capsys.readouterr().out
+    assert '"pearson_r"' in out and '"predict_accuracy"' in out and '"n": 30' in out

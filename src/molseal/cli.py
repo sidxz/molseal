@@ -7,16 +7,23 @@ the InChIKey. Nothing under molseal/ except this file computes one.
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
+import shutil
+import subprocess
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import sqlalchemy as sa
 from rdkit import Chem, RDLogger
+from sqlalchemy import delete, func, insert, select
 
 from .keys import FileKeyProvider, generate_key_file
-from .store import SqlStore
+from .store import SqlStore, structure_keys, structures, tenant_keys
 from .vault import Vault
 
 RDLogger.DisableLog("rdApp.*")
@@ -106,6 +113,99 @@ def cmd_similar(args: argparse.Namespace) -> int:
     return 0
 
 
+MIN_NEEDLE = 8
+CONTROL_ID = uuid.UUID("00000000-0000-0000-0000-0000000c0de0")
+
+
+def _read_sidecar(path: Path) -> list[tuple[uuid.UUID, str, str]]:
+    rows = []
+    for line in Path(path).read_text().splitlines():
+        id_, smiles, key = line.split("\t")
+        rows.append((uuid.UUID(id_), smiles, key))
+    return rows
+
+
+def _column_bytes(store: SqlStore, tenant: uuid.UUID) -> bytes:
+    with store.engine.connect() as conn:
+        parts = [r.nonce + r.ciphertext for r in conn.execute(
+            select(structures.c.nonce, structures.c.ciphertext).where(structures.c.tenant_id == tenant))]
+        parts += [r.nonce + r.wrapped for r in conn.execute(
+            select(tenant_keys.c.nonce, tenant_keys.c.wrapped).where(tenant_keys.c.tenant_id == tenant))]
+        parts += [r.hmac for r in conn.execute(
+            select(structure_keys.c.hmac).where(structure_keys.c.tenant_id == tenant))]
+    return b"\x00".join(parts)
+
+
+def _hits(blob: bytes, needles: list[bytes]) -> int:
+    return sum(1 for n in needles if n in blob)
+
+
+def cmd_absence_check(args: argparse.Namespace) -> int:
+    store, tenant = _store(args)
+    rows = _read_sidecar(Path(args.sidecar))
+    raw = {s for _, s, _ in rows} | {k for _, _, k in rows}
+    needles = [n.encode() for n in raw if len(n) >= MIN_NEEDLE]
+    skipped_short = len(raw) - len(needles)
+
+    control = b"MOLSEAL-CONTROL-PLAINTEXT-" + os.urandom(6).hex().encode()
+    with store.engine.begin() as conn:      # raw insert: no cursor bump, seq 0 is never read by a vault
+        conn.execute(insert(structures).values(tenant_id=tenant, id=CONTROL_ID, row_version=1, data_key_version=1,
+                                               nonce=b"\x00" * 12, ciphertext=control, deleted=True, seq=0,
+                                               updated_at=datetime.now(timezone.utc)))
+    try:
+        blob = _column_bytes(store, tenant)
+        db_hits = _hits(blob, needles)
+        control_found = control in blob
+        dump_hits = None
+        if args.run_pg_dump:
+            if shutil.which("pg_dump") is None:
+                print("pg_dump not found; skipping dump scan", file=sys.stderr)
+            else:
+                url = args.db.replace("postgresql+psycopg://", "postgresql://")
+                res = subprocess.run(["pg_dump", "-Fp", "--compress=0", "--dbname", url], capture_output=True, check=True)
+                dump_hits = _hits(res.stdout, needles)
+                control_found = control_found and control in res.stdout
+        elif args.dump:
+            dump = Path(args.dump).read_bytes()
+            dump_hits = _hits(dump, needles)
+    finally:
+        with store.engine.begin() as conn:
+            conn.execute(delete(structures).where(structures.c.tenant_id == tenant, structures.c.id == CONTROL_ID))
+    log_hits = _hits(Path(args.log).read_bytes(), needles) if args.log else None
+
+    ok = db_hits == 0 and not dump_hits and not log_hits and control_found
+    print(json.dumps({"needles": len(needles), "skipped_short": skipped_short, "db_hits": db_hits,
+                      "dump_hits": dump_hits, "log_hits": log_hits, "control_found": control_found, "ok": ok}, indent=1))
+    return 0 if ok else 1
+
+
+def cmd_leak_report(args: argparse.Namespace) -> int:
+    store, tenant = _store(args)
+    rows = _read_sidecar(Path(args.sidecar))
+    heavy = {id_: Chem.MolFromSmiles(s).GetNumHeavyAtoms() for id_, s, _ in rows}
+    with store.engine.connect() as conn:
+        sizes = {r.id: r.n for r in conn.execute(
+            select(structures.c.id, func.length(structures.c.ciphertext).label("n"))
+            .where(structures.c.tenant_id == tenant, structures.c.deleted == False))}  # noqa: E712
+    ids = [i for i in heavy if i in sizes]
+    cls = np.array([int(math.log2(sizes[i] - 16)) for i in ids])     # ciphertext = size class + 16-byte tag
+    atoms = np.array([heavy[i] for i in ids])
+    bucket = atoms // 10
+    r = float(np.corrcoef(cls, atoms)[0, 1]) if len(ids) > 1 and cls.std() > 0 else 0.0
+    predicted = np.empty_like(bucket)
+    for c in np.unique(cls):
+        mask = cls == c
+        predicted[mask] = np.bincount(bucket[mask]).argmax()
+    report = {
+        "n": len(ids), "pearson_r": round(r, 4),
+        "predict_accuracy": round(float((predicted == bucket).mean()), 4),
+        "baseline_accuracy": round(float(np.bincount(bucket).max() / len(bucket)), 4),
+        "size_classes": {str(2 ** int(c)): int((cls == c).sum()) for c in np.unique(cls)},
+    }
+    print(json.dumps(report, indent=1))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="molseal")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -138,6 +238,19 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--top", type=int, default=None)
     _add_common(m)
     m.set_defaults(fn=cmd_similar)
+
+    a = sub.add_parser("absence-check", help="prove no loaded structure appears in the DB, a plain dump, or a log")
+    a.add_argument("sidecar")
+    a.add_argument("--dump", help="path to a `pg_dump -Fp --compress=0` output to scan")
+    a.add_argument("--run-pg-dump", action="store_true", help="run pg_dump against --db and scan its output")
+    a.add_argument("--log", help="PostgreSQL log captured with log_statement=all")
+    _add_common(a)
+    a.set_defaults(fn=cmd_absence_check)
+
+    r = sub.add_parser("leak-report", help="how much ciphertext size class says about molecule size")
+    r.add_argument("sidecar")
+    _add_common(r)
+    r.set_defaults(fn=cmd_leak_report)
     return p
 
 
