@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import insert, update
 
-from molseal.store import StructureRecord, structures, tenants
+from molseal.store import StructureRecord, VersionConflict, structures, tenants
 
 
 def _rec(t, i, rv=1):
@@ -30,7 +30,7 @@ def test_second_writer_waits_for_first_to_commit_so_seq_order_is_commit_order(pg
                                              updated_at=datetime.now(timezone.utc)))
 
     # Writer B: a normal put, which must block on A's row lock.
-    th = threading.Thread(target=lambda: seq_b.append(pg_store.put_structure(_rec(t, b), {})))
+    th = threading.Thread(target=lambda: seq_b.append(pg_store.put_structure(_rec(t, b), {}, None)))
     th.start()
     time.sleep(0.5)
     assert th.is_alive(), "writer B should be blocked until A commits"
@@ -49,7 +49,43 @@ def test_round_trip_on_postgres(pg_store):
     t = uuid4()
     pg_store.ensure_tenant(t)
     i = uuid4()
-    s = pg_store.put_structure(_rec(t, i), {"inchikey": b"h" * 32})
+    s = pg_store.put_structure(_rec(t, i), {"inchikey": b"h" * 32}, None)
     got = pg_store.get_structure(t, i)
     assert got.seq == s and got.ciphertext == b"ct"
     assert pg_store.find_by_key(t, "inchikey", b"h" * 32) == [i]
+
+
+def test_second_writer_with_the_same_read_version_gets_a_conflict(pg_store, pg_engine):
+    t = uuid4()
+    pg_store.ensure_tenant(t)
+    a = uuid4()
+    pg_store.put_structure(_rec(t, a), {}, None)
+    assert pg_store.get_structure(t, a).row_version == 1      # both writers read rv 1
+    outcome = []
+
+    # Writer A: mid-put, holding the cursor lock, row already moved to rv 2.
+    conn_a = pg_engine.connect()
+    tx_a = conn_a.begin()
+    conn_a.execute(update(tenants).where(tenants.c.tenant_id == t).values(seq_cursor=tenants.c.seq_cursor + 1))
+    conn_a.execute(update(structures).where(structures.c.tenant_id == t, structures.c.id == a)
+                   .values(row_version=2, ciphertext=b"A"))
+
+    def writer_b():
+        try:
+            outcome.append(pg_store.put_structure(
+                StructureRecord(t, a, 2, 1, b"n" * 12, b"B", False), {}, 1))
+        except VersionConflict as exc:
+            outcome.append(exc)
+
+    th = threading.Thread(target=writer_b)
+    th.start()
+    time.sleep(0.5)
+    assert th.is_alive(), "writer B should be blocked on A's cursor lock"
+    tx_a.commit()
+    conn_a.close()
+    th.join(timeout=5)
+    assert not th.is_alive()
+    assert len(outcome) == 1 and isinstance(outcome[0], VersionConflict)
+    got = pg_store.get_structure(t, a)
+    assert got.row_version == 2 and got.ciphertext == b"A"
+    assert pg_store.tenant_state(t) == (2, 1)

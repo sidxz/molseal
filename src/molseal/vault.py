@@ -3,6 +3,9 @@
 Consistency model (single process): a put or delete updates the index in the same call, so a
 search right after sees it. Every search first reads the tenant's cursor; if it moved, the vault
 pulls the new rows first. If it moved backwards, or the live counts disagree, the index is rebuilt.
+
+Multi-writer safety: put and delete compare-and-set on row_version inside the store transaction
+and retry the whole read-seal-write cycle on conflict, so two writers never reuse a version.
 """
 
 from __future__ import annotations
@@ -16,7 +19,9 @@ from .crypto import open_sealed, pad, row_aad, seal, unpad
 from .engine import QueryKind, StructureIndex, canonicalize
 from .keys import KeyProvider, TenantKeys, exact_key_hmac, new_tenant_secret, unwrap_key, wrap_key
 from .payload import Payload, decode, encode
-from .store import StructureRecord, StructureStore, WrappedKey
+from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
+
+WRITE_ATTEMPTS = 5
 
 
 class VaultError(Exception):
@@ -48,11 +53,12 @@ class Vault:
         dv, hv = self.tenant.data_key_version, self.tenant.hmac_key_version
         wrapped = {(k.kind, k.version): k for k in self.store.get_tenant_keys(self.tenant_id)}
         if not wrapped:
+            if self.store.max_seq(self.tenant_id) != 0:
+                raise VaultError(f"tenant {self.tenant_id} has structures but no key rows; refusing to mint new keys")
             data, hm = new_tenant_secret(), new_tenant_secret()
-            n, w = wrap_key(self._kek, self.tenant_id, "data", dv, data)
-            self.store.put_tenant_key(self.tenant_id, WrappedKey("data", dv, n, w))
-            n, w = wrap_key(self._kek, self.tenant_id, "hmac", hv, hm)
-            self.store.put_tenant_key(self.tenant_id, WrappedKey("hmac", hv, n, w))
+            nd, wd = wrap_key(self._kek, self.tenant_id, "data", dv, data)
+            nh, wh = wrap_key(self._kek, self.tenant_id, "hmac", hv, hm)
+            self.store.put_tenant_keys(self.tenant_id, [WrappedKey("data", dv, nd, wd), WrappedKey("hmac", hv, nh, wh)])
             return TenantKeys(data, dv, hm, hv)
         try:
             d, h = wrapped[("data", dv)], wrapped[("hmac", hv)]
@@ -98,35 +104,42 @@ class Vault:
     def put(self, id: UUID, smiles: str, exact_keys: dict[str, str] | None = None) -> int:
         canonical = canonicalize(smiles)          # raises StructureError before any write
         ek = dict(exact_keys or {})
+        hmacs = {k: exact_key_hmac(self.keys.hmac_key, k, v) for k, v in ek.items()}
         with self._lock:
-            existing = self.store.get_structure(self.tenant_id, id)
-            rv = 1 if existing is None else existing.row_version + 1
-            nonce, ct = self._seal(id, rv, Payload(canonical, ek, False))
-            rec = StructureRecord(self.tenant_id, id, rv, self.keys.data_key_version, nonce, ct, False)
-            seq = self.store.put_structure(rec, {k: exact_key_hmac(self.keys.hmac_key, k, v) for k, v in ek.items()})
+            seq, rv = self._write(id, Payload(canonical, ek, False), hmacs)
             self.index.add_batch([(id, canonical, rv)], self.num_threads)
             self._advance(seq)
         return seq
 
     def delete(self, id: UUID) -> int:
         with self._lock:
-            existing = self.store.get_structure(self.tenant_id, id)
-            if existing is None:
-                raise NotFound(str(id))
-            rv = existing.row_version + 1
-            nonce, ct = self._seal(id, rv, Payload("", {}, True))
-            rec = StructureRecord(self.tenant_id, id, rv, self.keys.data_key_version, nonce, ct, True)
-            seq = self.store.put_structure(rec, {})
+            seq, rv = self._write(id, Payload("", {}, True), {})
             self.index.mark_dead(id, rv)
             self._advance(seq)
         return seq
+
+    def _write(self, id: UUID, payload: Payload, hmacs: dict[str, bytes]) -> tuple[int, int]:
+        """Read the row version, seal at the next one, compare-and-set. Retries on conflict."""
+        for _ in range(WRITE_ATTEMPTS):
+            existing = self.store.get_structure(self.tenant_id, id)
+            if existing is None and payload.deleted:
+                raise NotFound(str(id))
+            expected = None if existing is None else existing.row_version
+            rv = 1 if expected is None else expected + 1
+            nonce, ct = self._seal(id, rv, payload)
+            rec = StructureRecord(self.tenant_id, id, rv, self.keys.data_key_version, nonce, ct, payload.deleted)
+            try:
+                return self.store.put_structure(rec, hmacs, expected), rv
+            except VersionConflict:
+                continue
+        raise VaultError(f"{id}: row_version conflict persisted after {WRITE_ATTEMPTS} attempts")
 
     def _advance(self, seq: int) -> None:
         """After our own write: if nothing else landed in between, remember seq; otherwise catch up."""
         if seq == self.index.last_seq + 1:
             self.index.last_seq = seq
         else:
-            self._refresh_locked()
+            self._refresh_locked(*self.store.tenant_state(self.tenant_id))
 
     # ----- reads -----
 
@@ -168,23 +181,23 @@ class Vault:
 
     def refresh(self) -> int:
         with self._lock:
-            return self._refresh_locked()
+            return self._refresh_locked(*self.store.tenant_state(self.tenant_id))
 
     def rebuild(self) -> None:
         with self._lock:
-            self._rebuild_locked()
+            self._rebuild_locked(self.store.tenant_state(self.tenant_id)[0])
 
     def _sync_locked(self) -> None:
-        cursor = self.store.seq_cursor(self.tenant_id)
+        cursor, live = self.store.tenant_state(self.tenant_id)
         if cursor < self.index.last_seq:
-            self._rebuild_locked()
+            self._rebuild_locked(cursor)
         elif cursor > self.index.last_seq:
-            self._refresh_locked()
+            self._refresh_locked(cursor, live)
 
-    def _catch_up(self, index: StructureIndex) -> int:
+    def _catch_up(self, index: StructureIndex, upto: int) -> int:
         applied = 0
         while True:
-            recs = self.store.changes_since(self.tenant_id, index.last_seq, self.refresh_batch)
+            recs = self.store.changes_since(self.tenant_id, index.last_seq, self.refresh_batch, upto)
             if not recs:
                 return applied
             items = []
@@ -198,13 +211,14 @@ class Vault:
             index.last_seq = recs[-1].seq
             applied += len(recs)
 
-    def _refresh_locked(self) -> int:
-        applied = self._catch_up(self.index)
-        if self.store.live_count(self.tenant_id) != len(self.index):
-            self._rebuild_locked()
+    def _refresh_locked(self, cursor: int, live: int) -> int:
+        """Catch up to exactly `cursor`, then compare with `live`, the count read with it."""
+        applied = self._catch_up(self.index, cursor)
+        if live != len(self.index) + len(self.index.unindexed):
+            self._rebuild_locked(cursor)
         return applied
 
-    def _rebuild_locked(self) -> None:
+    def _rebuild_locked(self, upto: int) -> None:
         fresh = StructureIndex()          # built aside, then swapped in
-        self._catch_up(fresh)
+        self._catch_up(fresh, upto)
         self.index = fresh
