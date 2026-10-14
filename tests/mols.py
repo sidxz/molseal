@@ -13,7 +13,7 @@ R_GROUPS = [
     "C", "CC", "CCC", "CC(C)C", "CCO", "CCN", "CCCl", "CF", "C(F)(F)F", "CO", "CN(C)C", "Cc1ccccc1",
     "CCC(=O)O", "CCS", "c1ccccc1", "C1CCCC1", "CC=C", "CC#C", "CCBr", "C(=O)C",
 ]
-STEREO = ["C[C@H](N)C(=O)O", "C[C@@H](N)C(=O)O", "CC(N)C(=O)O"]
+STEREO = ["C[C@H](N)C(=O)O", "C[C@@H](N)C(=O)O", "CC(N)C(=O)O", "C/C=C/C(=O)O", "C/C=C\\C(=O)O", "CC=CC(=O)O"]
 
 
 def molecules() -> list[str]:

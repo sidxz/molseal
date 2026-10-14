@@ -132,6 +132,17 @@ Vault.count_substructure(query, kind="smiles", *, generalized=False, use_chirali
 - **use_chirality.** Passed straight to `GetMatches` / `CountMatches`. RDKit semantics: a query with defined
   stereo matches only targets with the same defined stereo (tetrahedral and E/Z); undefined stereo in the
   query matches anything; undefined stereo in the target does not match a defined query.
+
+  *Amendment 2026-10-14.* The library's `CachedTrustedSmilesMolHolder` re-parses targets without
+  sanitization and never assigns bond stereo, so the library alone drops every E/Z query under
+  `use_chirality`, including the query's own molecule (found by parity gate 8 at 500k). When
+  `use_chirality` is true and the parsed query has a bond with defined stereo, the engine searches with
+  chirality off (a superset), re-parses each hit's stored SMILES fully and keeps it only if it matches
+  with chirality (`HasSubstructMatch`, or `rdGeneralizedSubstruct.MolHasSubstructMatch` for generalized
+  queries); the live filter and `max_results` apply to the survivors. Queries without bond stereo keep
+  the native path. Cost ceiling: one full parse per chirality-off hit, so a broad E/Z query on a large
+  library pays hits × parse. A sanitizing holder fixes this natively but measured 4.3× slower
+  single-threaded (3.5× on all cores) for every substructure search, so it was rejected.
 - **Pattern holder.** The index builds its screen with `AddPatterns(lib, TautomerPatternHolder(), numThreads)`
   instead of the plain holder. Measured on 20k molecules: same build time, identical hits for plain, SMARTS
   and generalized queries, generalized queries 4–5× faster because the screen is kept, library bytes +10%.

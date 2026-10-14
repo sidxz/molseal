@@ -414,3 +414,53 @@ def test_generalized_with_smarts_or_molblock_answers_or_raises_cleanly(index):
 def test_capped_search_is_deterministic_on_one_thread(index):
     runs = {tuple(index.substructure("c1ccccc1", max_results=10, num_threads=1)) for _ in range(5)}
     assert len(runs) == 1 and len(next(iter(runs))) == 10
+
+
+def _ids_of(dataset, *smiles):
+    ids, canon, _ = dataset
+    want = {Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in smiles}
+    return {i for i, s in zip(ids, canon) if s in want}
+
+
+def test_ez_query_with_chirality_matches_only_the_same_double_bond_stereo(index, dataset):
+    e = "C/C=C/C(=O)O"
+    expected = brute_force_chiral(dataset, e)
+    assert expected and expected == _ids_of(dataset, e)                    # only the E form among the three
+    assert set(index.substructure(e, use_chirality=True)) == expected
+    assert index.count_substructure(e, use_chirality=True) == len(expected)
+    flat = "CC=CC(=O)O"
+    assert set(index.substructure(flat, use_chirality=True)) == brute_force(dataset, flat, "smiles")
+    assert _ids_of(dataset, "C/C=C/C(=O)O", "C/C=C\\C(=O)O", "CC=CC(=O)O") <= set(index.substructure(flat, use_chirality=True))
+
+
+def test_ez_molecule_searched_for_itself_with_chirality_contains_its_own_id(index, dataset):
+    for s in ("C/C=C/C(=O)O", "C/C=C\\C(=O)O"):
+        assert _ids_of(dataset, s) <= set(index.substructure(s, use_chirality=True))
+
+
+def test_query_with_a_tetrahedral_centre_and_an_e_double_bond():
+    idx = engine.StructureIndex()
+    smiles = ["C/C=C/[C@H](N)C(=O)O", "C/C=C/[C@@H](N)C(=O)O", "C/C=C\\[C@H](N)C(=O)O", "CC=CC(N)C(=O)O"]
+    ids = [uuid4() for _ in smiles]
+    idx.add_batch([(i, s, 1) for i, s in zip(ids, smiles)])
+    q = Chem.MolFromSmiles(smiles[0])
+    expected = {i for i, s in zip(ids, smiles) if Chem.MolFromSmiles(s).HasSubstructMatch(q, useChirality=True)}
+    assert expected == {ids[0]}
+    assert set(idx.substructure(smiles[0], use_chirality=True)) == expected
+    assert idx.count_substructure(smiles[0], use_chirality=True) == 1
+    assert len(idx.substructure(smiles[0])) == 4
+
+
+def test_max_results_caps_an_ez_chiral_query(index):
+    assert len(index.substructure("C=CC(=O)O", use_chirality=True)) >= 2
+    hits = index.substructure("C/C=C/C", use_chirality=True, max_results=1)
+    assert len(hits) == 1 and set(hits) <= set(index.substructure("C/C=C/C", use_chirality=True))
+
+
+def test_generalized_ez_chiral_query_sits_between_plain_chiral_and_chirality_off(index, dataset):
+    e = "C/C=C/C(=O)O"
+    gen_on = set(index.substructure(e, generalized=True, use_chirality=True))
+    assert _ids_of(dataset, e) <= gen_on and not _ids_of(dataset, "C/C=C\\C(=O)O") & gen_on
+    assert set(index.substructure(e, use_chirality=True)) <= gen_on <= set(index.substructure(e, generalized=True))
+    assert index.count_substructure(e, generalized=True, use_chirality=True) == len(gen_on)
+    assert gen_on < set(index.substructure(e, generalized=True))           # the Z form drops out

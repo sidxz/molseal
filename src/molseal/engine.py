@@ -17,7 +17,7 @@ from uuid import UUID
 import numpy as np
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdFingerprintGenerator
-from rdkit.Chem.rdGeneralizedSubstruct import CreateExtendedQueryMol
+from rdkit.Chem.rdGeneralizedSubstruct import CreateExtendedQueryMol, MolHasSubstructMatch
 from rdkit.Chem.rdSubstructLibrary import AddPatterns, CachedTrustedSmilesMolHolder, SubstructLibrary, TautomerPatternHolder
 
 from .metrics import Metric, tanimoto
@@ -126,7 +126,7 @@ class _Family:
         self.pop[start : start + len(mat)] = np.bitwise_count(mat).sum(axis=1).astype(np.uint16)
 
 
-def _parse_query(query: str, kind: QueryKind, generalized: bool = False):
+def _parse_query(query: str, kind: QueryKind):
     parser = _PARSERS.get(kind)
     if parser is None:
         raise StructureError(f"unknown query kind {kind!r}")
@@ -136,8 +136,10 @@ def _parse_query(query: str, kind: QueryKind, generalized: bool = False):
         q = None
     if q is None:
         raise StructureError(f"cannot parse {kind} query: {query!r}")
-    if not generalized:
-        return q
+    return q
+
+
+def _generalize(q, query: str, kind: QueryKind):
     try:   # positional: doEnumeration=True, doTautomers=True, adjustQueryProperties=False (the cartridge's defaults)
         return CreateExtendedQueryMol(q, True, True, False)
     except (ValueError, RuntimeError) as exc:
@@ -299,15 +301,30 @@ class StructureIndex:
 
     # ----- substructure -----
 
-    def substructure(self, query: str, kind: QueryKind = "smiles", max_results: int | None = None,
-                     num_threads: int = -1, *, generalized: bool = False, use_chirality: bool = False) -> list[UUID]:
-        if len(self) == 0:
-            return []
-        q = _parse_query(query, kind, generalized)
+    def _ez_chiral_hits(self, plain: Chem.Mol, q, generalized: bool, num_threads: int) -> list[int]:
+        """Positions matching a query with double-bond stereo under chirality. CachedTrustedSmilesMolHolder
+        never assigns bond stereo to its targets, so the library cannot check E/Z: search without
+        chirality (a superset), then re-check each hit on a fully parsed molecule."""
+        # ponytail: one full parse per chirality-off hit; a broad E/Z query on a large library pays hits x parse
+        params = Chem.SubstructMatchParameters()
+        params.useChirality = True
+        keep = []
+        for pos in self._lib.GetMatches(q, recursionPossible=True, useChirality=False, useQueryQueryMatches=False,
+                                        numThreads=num_threads, maxResults=-1):
+            m = Chem.MolFromSmiles(Chem.MolToSmiles(self._lib.GetMol(pos)))
+            if m is not None and (MolHasSubstructMatch(m, q, params) if generalized else m.HasSubstructMatch(plain, useChirality=True)):
+                keep.append(pos)
+        return keep
+
+    def _query(self, query: str, kind: QueryKind, generalized: bool, use_chirality: bool, num_threads: int):
+        plain = _parse_query(query, kind)
+        q = _generalize(plain, query, kind) if generalized else plain
         self._ensure_patterns(num_threads)
         self._ensure_order()
-        hits = self._lib.GetMatches(q, recursionPossible=True, useChirality=use_chirality, useQueryQueryMatches=False,
-                                    numThreads=num_threads, maxResults=-1 if max_results is None else int(max_results))
+        ez = use_chirality and any(b.GetStereo() != Chem.BondStereo.STEREONONE for b in plain.GetBonds())
+        return plain, q, ez
+
+    def _live_ids(self, hits: Iterable[int]) -> list[UUID]:
         out: dict[UUID, None] = {}
         for pos in hits:
             id_ = self._ids[pos]
@@ -315,13 +332,25 @@ class StructureIndex:
                 out[id_] = None
         return list(out)
 
+    def substructure(self, query: str, kind: QueryKind = "smiles", max_results: int | None = None,
+                     num_threads: int = -1, *, generalized: bool = False, use_chirality: bool = False) -> list[UUID]:
+        if len(self) == 0:
+            return []
+        plain, q, ez = self._query(query, kind, generalized, use_chirality, num_threads)
+        if ez:
+            out = self._live_ids(self._ez_chiral_hits(plain, q, generalized, num_threads))
+            return out if max_results is None else out[: int(max_results)]
+        hits = self._lib.GetMatches(q, recursionPossible=True, useChirality=use_chirality, useQueryQueryMatches=False,
+                                    numThreads=num_threads, maxResults=-1 if max_results is None else int(max_results))
+        return self._live_ids(hits)
+
     def count_substructure(self, query: str, kind: QueryKind = "smiles", num_threads: int = -1, *,
                            generalized: bool = False, use_chirality: bool = False) -> int:
         if len(self) == 0:
             return 0
-        q = _parse_query(query, kind, generalized)
-        self._ensure_patterns(num_threads)
-        self._ensure_order()
+        plain, q, ez = self._query(query, kind, generalized, use_chirality, num_threads)
+        if ez:
+            return len(self._live_ids(self._ez_chiral_hits(plain, q, generalized, num_threads)))
         return int(self._lib.CountMatches(q, recursionPossible=True, useChirality=use_chirality,
                                           useQueryQueryMatches=False, numThreads=num_threads))
 
