@@ -24,29 +24,40 @@ FUNCTIONAL_GROUPS: list[tuple[str, str]] = [
     ("ring-atom", "[R]"), ("five-ring", "[r5]"), ("ring-junction", "[x3]"), ("ring-bond-CN", "[#6]@[#7]"),
     ("non-amide-N", "[#7;!$(N-C=O)]"), ("alcohol", "[CX4][OX2H]"),
 ]
-_DUMMY = Chem.MolFromSmarts("[#0]")
+def strip_dummies(frag: str) -> Chem.Mol | None:
+    """A BRICS fragment without its [n*] dummies. The former attachment atoms get their hydrogens back
+    instead of becoming radicals: a radical query only matches radicals, so it would hit nothing."""
+    m = Chem.RWMol(Chem.MolFromSmiles(frag, sanitize=False))
+    dummies = [a.GetIdx() for a in m.GetAtoms() if a.GetAtomicNum() == 0]
+    attach = {n.GetIdx() for d in dummies for n in m.GetAtomWithIdx(d).GetNeighbors()}
+    for a in attach:
+        m.GetAtomWithIdx(a).SetNumRadicalElectrons(0)
+        m.GetAtomWithIdx(a).SetNoImplicit(False)
+    for d in sorted(dummies, reverse=True):
+        m.RemoveAtom(d)
+    fm = m.GetMol()
+    try:
+        Chem.SanitizeMol(fm)
+    except Exception:
+        return None
+    return fm if fm.GetNumAtoms() and len(Chem.GetMolFrags(fm)) == 1 and not any(
+        a.GetNumRadicalElectrons() for a in fm.GetAtoms()) else None
 
 
 def fragments_from(smiles_list: list[str], rng: random.Random, n: int = 50, min_atoms: int = 5, max_atoms: int = 20) -> list[str]:
+    """Fragments of the given molecules, each one checked to match the molecule it was cut from."""
     seen: dict[str, int] = {}
     for smi in smiles_list:
         mol = Chem.MolFromSmiles(smi)
         if mol is None:
             continue
         for frag in BRICS.BRICSDecompose(mol):
-            fm = Chem.MolFromSmiles(frag)
+            fm = strip_dummies(frag)
             if fm is None:
-                continue
-            fm = Chem.DeleteSubstructs(fm, _DUMMY)
-            try:
-                Chem.SanitizeMol(fm)
-            except Exception:
-                continue
-            if fm.GetNumAtoms() == 0 or len(Chem.GetMolFrags(fm)) != 1:
                 continue
             canon = Chem.MolToSmiles(fm)
             atoms = fm.GetNumHeavyAtoms()
-            if min_atoms <= atoms <= max_atoms:
+            if min_atoms <= atoms <= max_atoms and mol.HasSubstructMatch(Chem.MolFromSmiles(canon)):
                 seen[canon] = atoms
     pool = sorted(seen.items(), key=lambda kv: (kv[1], kv[0]))
     if len(pool) <= n:

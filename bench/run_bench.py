@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import resource
+import statistics
 import subprocess
 import sys
 import time
@@ -24,13 +25,11 @@ from molseal.store import SqlStore
 from molseal.vault import Vault
 
 
-def median(xs: list[float]) -> float:
-    s = sorted(xs)
-    n = len(s)
-    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+median = statistics.median
 
 
 def percentile(xs: list[float], p: float) -> float:
+    """Nearest rank on the sorted values (index round(p% * (n - 1))). Used for p95; p50 is the true median."""
     s = sorted(xs)
     k = max(0, min(len(s) - 1, round((p / 100) * (len(s) - 1))))
     return s[k]
@@ -74,12 +73,14 @@ def run_molseal(vault: Vault, queries: dict, rejected: set[uuid.UUID], threads: 
     base = {"side": "molseal", "threads": threads, "repeats": repeats}
     for sq in queries["substructure"]:
         q, k = sq["query"], sq["kind"]
-        hits = len(set(idx.substructure(q, k, None, threads)) - rejected)
+        found = idx.substructure(q, k, None, threads)
+        hits = sum(i not in rejected for i in found)
+        count = idx.count_substructure(q, k, threads) - (len(found) - hits)   # rejected rows out, as in parity
         rows.append({**base, "query_id": sq["id"], "kind": k, "op": "substructure", "capped": False, "hits": hits,
                      "median_s": time_calls(lambda: idx.substructure(q, k, None, threads), repeats)})
         rows.append({**base, "query_id": sq["id"], "kind": k, "op": "substructure", "capped": True, "hits": min(hits, 1000),
                      "median_s": time_calls(lambda: idx.substructure(q, k, 1000, threads), repeats)})
-        rows.append({**base, "query_id": sq["id"], "kind": k, "op": "count", "capped": False, "hits": hits,
+        rows.append({**base, "query_id": sq["id"], "kind": k, "op": "count", "capped": False, "hits": count,
                      "median_s": time_calls(lambda: idx.count_substructure(q, k, threads), repeats)})
         if end_to_end:
             def e2e():
@@ -143,8 +144,18 @@ def summarize(rows: list[dict]) -> str:
     for key in sorted(groups, key=str):
         xs = groups[key]
         lines.append(f"| {key[0]} | {key[1]} | {key[2]} | {key[3]} | {key[4]} | {key[5]} | {len(xs)} | "
-                     f"{percentile(xs, 50):.4f} | {percentile(xs, 95):.4f} |")
+                     f"{median(xs):.4f} | {percentile(xs, 95):.4f} |")
     return "\n".join(lines) + "\n"
+
+
+def check_parity(results: Path, n: str) -> None:
+    """Refuse to time unless parity passed for this N, and passed after the latest load."""
+    parity = results / f"parity_{n}.json"
+    if not parity.exists() or not json.loads(parity.read_text()).get("ok"):
+        raise SystemExit("parity gates have not passed for this N; refusing to time")
+    loads = [f.stat().st_mtime for f in results.glob(f"load_*_{n}.json")]
+    if loads and parity.stat().st_mtime < max(loads):
+        raise SystemExit("parity file is older than the latest load for this N; rerun parity first")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,9 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         (results / f"timings_{a.n}.md").write_text(md)
         print(md)
         return 0
-    parity = results / f"parity_{a.n}.json"
-    if not parity.exists() or not json.loads(parity.read_text()).get("ok"):
-        raise SystemExit("parity gates have not passed for this N; refusing to time")
+    check_parity(results, a.n)
     queries = json.loads(Path(f"bench/data/queries_{a.n}.json").read_text())
     rej = results / f"cartridge_rejected_{a.n}.txt"
     rejected = {uuid.UUID(l) for l in rej.read_text().split()} if rej.exists() else set()
@@ -201,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             with engine.begin() as c:
                 for rel in ("mols", "mols_m_gist", "mols_mfp_gist"):
                     c.execute(text(f"SELECT pg_prewarm('{rel}')"))
+        with engine.connect() as c:
+            meta["max_parallel_workers_per_gather"] = c.execute(text("SHOW max_parallel_workers_per_gather")).scalar_one()
         rows = run_cartridge(engine, queries, a.repeats, a.consumer_path_queries)
         meta["container_mem"] = _sh(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", "bench-cartridge-db-1"])
         name = f"timings_{a.n}_cartridge_{a.where}_{a.mode}.json"
