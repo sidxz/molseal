@@ -53,3 +53,52 @@ def test_overall_ok_needs_every_gate():
     for g in ("gate2", "gate3", "gate4"):
         assert not parity.overall_ok({**good, g: [{"ok": True}, {"ok": False}]})
     assert not parity.overall_ok({**good, "gate1": {"ok": False}})
+
+
+import numpy as np
+from rdkit import Chem, DataStructs
+from rdkit.Chem import rdFingerprintGenerator
+
+from molseal import metrics
+
+
+def test_check_chiral_requires_equal_on_sets_and_supersets_on_both_sides():
+    a, b, r = uuid4(), uuid4(), uuid4()
+    ok = parity.check_chiral("q", [a, r], {a}, [a, b, r], {a, b}, {r})
+    assert ok["ok"] and ok["equal"] and ok["superset_molseal"] and ok["superset_cartridge"]
+    assert not parity.check_chiral("q", [a], {b}, [a, b], {a, b}, set())["ok"]           # on sets differ
+    assert not parity.check_chiral("q", [a], {a}, [b], {a, b}, set())["ok"]              # molseal off is not a superset
+    assert not parity.check_chiral("q", [a], {a}, [a, b], {b}, set())["ok"]              # cartridge off is not a superset
+
+
+def test_check_rows_counts_mismatches_and_missing_ids():
+    a, b = uuid4(), uuid4()
+    ref = {a: np.array([1, 2], dtype=np.uint8), b: np.array([3, 4], dtype=np.uint8)}
+    assert parity.check_rows([a, b], np.array([[1, 2], [3, 4]], dtype=np.uint8), ref)["ok"]
+    bad = parity.check_rows([a, b], np.array([[1, 2], [9, 4]], dtype=np.uint8), ref)
+    assert not bad["ok"] and bad["mismatches"] == 1
+    missing = parity.check_rows([a], np.array([[1, 2]], dtype=np.uint8), ref)
+    assert not missing["ok"] and missing["missing"] == 1
+
+
+def test_gate_six_would_catch_a_swapped_tversky_pair():
+    gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+    query = gen.GetFingerprint(Chem.MolFromSmiles("c1ccccc1"))
+    targets = [gen.GetFingerprint(Chem.MolFromSmiles(s)) for s in ("c1ccccc1CCN", "CCOc1ccccc1C(=O)O", "CCCC")]
+    ids = [uuid4() for _ in targets]
+    qbits = set(query.GetOnBits())
+    c = np.array([len(qbits & set(t.GetOnBits())) for t in targets])
+    b = np.array([t.GetNumOnBits() for t in targets])
+    ours = dict(zip(ids, metrics.tversky(1, 0)(c, query.GetNumOnBits(), b)))
+    right = {i: DataStructs.TverskySimilarity(query, t, 1.0, 0.0) for i, t in zip(ids, targets)}   # query first
+    swapped = {i: DataStructs.TverskySimilarity(t, query, 1.0, 0.0) for i, t in zip(ids, targets)}
+    assert parity.compare_scores(ours, right)["equal"]
+    assert not parity.compare_scores(ours, swapped)["equal"]
+    assert parity.SQL_TVERSKY.count("tversky_sml(morganbv_fp(mol_from_smiles(") == 2       # the query is the first argument
+
+
+def test_overall_ok_covers_gates_five_to_ten():
+    good = {"gate1": {"ok": True}, **{f"gate{n}": [{"ok": True}] for n in range(2, 11)}}
+    assert parity.overall_ok(good)
+    for n in range(5, 11):
+        assert not parity.overall_ok({**good, f"gate{n}": [{"ok": True}, {"ok": False}]})

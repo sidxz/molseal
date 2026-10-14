@@ -48,3 +48,29 @@ def test_build_queries_is_deterministic(tmp_path):
     kinds = {s["kind"] for s in a["substructure"]}
     assert kinds == {"smiles", "smarts"}
     assert json.dumps(a)   # serializable
+
+
+def test_chiral_queries_have_assigned_centres_and_mirror_images():
+    out = q.chiral_queries(molecules(), random.Random(3), n=20)
+    assert len(out) >= 2
+    for s in out:
+        m = Chem.MolFromSmiles(s)
+        assert m is not None and m.GetNumHeavyAtoms() <= 30
+        assert Chem.FindMolChiralCenters(m, includeUnassigned=False, useLegacyImplementation=False)
+    l_ala = Chem.MolToSmiles(Chem.MolFromSmiles("C[C@H](N)C(=O)O"))
+    d_ala = Chem.MolToSmiles(Chem.MolFromSmiles("C[C@@H](N)C(=O)O"))
+    assert q.mirror(l_ala) == d_ala and q.mirror(d_ala) == l_ala
+    assert q.mirror("not a molecule") is None
+    assert out == q.chiral_queries(molecules(), random.Random(3), n=20)        # seeded
+
+
+def test_chiral_queries_are_drawn_after_the_rest_so_old_sections_do_not_move(tmp_path, monkeypatch):
+    slice_path = tmp_path / "slice_438.tsv"
+    slice_path.write_text("".join(f"CHEMBL{i}\t{s}\tK{i}\n" for i, s in enumerate(molecules())))
+    with_chiral = q.build_queries(slice_path, seed=7, n_frag=10, n_sim=5, sample=100)
+    monkeypatch.setattr(q, "chiral_queries", lambda *a, **k: [])
+    without = q.build_queries(slice_path, seed=7, n_frag=10, n_sim=5, sample=100)
+    assert with_chiral["substructure"] == without["substructure"]
+    assert with_chiral["similarity"] == without["similarity"]
+    assert with_chiral["chiral"] and without["chiral"] == []
+    assert all(c["id"].startswith("chi-") and c["query"] for c in with_chiral["chiral"])

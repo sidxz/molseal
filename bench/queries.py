@@ -67,7 +67,33 @@ def fragments_from(smiles_list: list[str], rng: random.Random, n: int = 50, min_
     return list(dict.fromkeys(picks))
 
 
-def build_queries(slice_path: Path, seed: int = 20261013, n_frag: int = 50, n_sim: int = 50, sample: int = 2000) -> dict:
+def mirror(smiles: str) -> str | None:
+    """The mirror image: every @@ becomes @ and every @ becomes @@. None if it does not re-parse."""
+    flipped = smiles.replace("@@", "\0").replace("@", "@@").replace("\0", "@")
+    m = Chem.MolFromSmiles(flipped)
+    return None if m is None else Chem.MolToSmiles(m)
+
+
+def chiral_queries(smiles_list: list[str], rng: random.Random, n: int = 20, max_atoms: int = 30) -> list[str]:
+    """n seeded molecules with at least one assigned tetrahedral stereocentre and at most max_atoms heavy
+    atoms, each followed by its mirror image when that differs. Canonical SMILES."""
+    pool: set[str] = set()
+    for smi in smiles_list:
+        mol = Chem.MolFromSmiles(smi)
+        if mol is None or mol.GetNumHeavyAtoms() > max_atoms:
+            continue
+        if Chem.FindMolChiralCenters(mol, includeUnassigned=False, useLegacyImplementation=False):
+            pool.add(Chem.MolToSmiles(mol))
+    out: list[str] = []
+    for s in rng.sample(sorted(pool), min(n, len(pool))):
+        out.append(s)
+        m = mirror(s)
+        if m is not None and m != s:
+            out.append(m)
+    return out
+
+def build_queries(slice_path: Path, seed: int = 20261013, n_frag: int = 50, n_sim: int = 50, sample: int = 2000,
+                 n_chiral: int = 20) -> dict:
     rng = random.Random(seed)
     rows = [line.rstrip("\n").split("\t") for line in open(slice_path)]
     picked = rng.sample(rows, min(sample, len(rows)))
@@ -76,7 +102,8 @@ def build_queries(slice_path: Path, seed: int = 20261013, n_frag: int = 50, n_si
     sub += [{"id": f"fg-{name}", "kind": "smarts", "query": smarts} for name, smarts in FUNCTIONAL_GROUPS]
     sims = rng.sample(rows, min(n_sim, len(rows)))
     sim = [{"id": f"sim-{i:03d}", "query": r[1], "source_id": str(row_id(r[0]))} for i, r in enumerate(sims)]
-    return {"seed": seed, "slice": str(slice_path), "substructure": sub, "similarity": sim}
+    chiral = [{"id": f"chi-{i:03d}", "query": s} for i, s in enumerate(chiral_queries([r[1] for r in picked], rng, n=n_chiral))]
+    return {"seed": seed, "slice": str(slice_path), "substructure": sub, "similarity": sim, "chiral": chiral}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     n = Path(a.slice).stem.split("_")[-1]
     out = Path(a.slice).parent / f"queries_{n}.json"
     out.write_text(json.dumps(qs, indent=1))
-    print(f"{len(qs['substructure'])} substructure, {len(qs['similarity'])} similarity -> {out}")
+    print(f"{len(qs['substructure'])} substructure, {len(qs['similarity'])} similarity, {len(qs['chiral'])} chiral -> {out}")
     return 0
 
 
