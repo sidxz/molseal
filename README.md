@@ -1,295 +1,536 @@
-# molseal
+# Molseal
 
-Encrypted chemical structures in any SQL database, with RDKit search done in-process.
+**Encrypted molecular storage with RDKit**
 
-Status: Proof of concept, milestone 1: library, tests and absence check. Benchmarks against the RDKit cartridge are the next milestone.
+Molseal addresses a security problem in cheminformatics applications: how to keep molecular data
+encrypted in the database while retaining the chemical operations that make the data useful. It
+encrypts molecular records before they reach SQL storage and can perform substructure search,
+similarity search, and exact-key lookup.
 
-molseal keeps chemical structures encrypted at the application level inside any SQL database, and runs substructure, similarity and exact-match search in-process with RDKit. This is encrypted blob storage plus a plaintext in-memory index in a trusted process. It is not encrypted search. Anyone with the application's memory, swap or core dumps sees structures. Anyone with only database access does not. The database only ever holds ciphertext.
+Molecular records use **AES-256-GCM authenticated encryption**, with 256-bit
+keys, randomly generated 96-bit nonces, and 128-bit authentication tags. This provides confidentiality
+and detects ciphertext tampering during decryption.
+It uses the Python `cryptography` library's
+[AES-GCM primitive](https://cryptography.io/en/latest/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM).
 
-Design: `docs/superpowers/specs/2026-10-13-molseal-poc-design.md`.
+The underlying molecular payloads remain encrypted in the database. Structures and fingerprints
+are available in plaintext within the application process, where chemical computation takes place.
 
-## Threat model
 
-**Attacker.** Has full read access to the database: credentials, data files, WAL, backups, replicas and statement logs. May also have write access.
+**Project status:** pre-1.0. The public API may change between minor versions.
 
-**Trusted.** The application process running molseal, and the key provider.
+**Contents:** [1. Motivation](#1-motivation) · [2. Objective and approach](#2-project-objective-and-approach) ·
+[3. Architecture](#3-system-architecture) · [4. Security model](#4-security-model-and-boundaries) ·
+[5. Chemical search](#5-chemical-search-methods) · [6. Evaluation](#6-evaluation) ·
+[7. Installation and usage](#7-installation-and-usage) · [8. Limitations](#8-limitations-and-future-work) ·
+[9. Development](#9-development-and-reproducibility) · [License and data attribution](#license-and-data-attribution)
 
-**Guaranteed against a read attacker.** No structure, no fingerprint and no exact-key value is recoverable from anything the database holds.
+## 1. Motivation
 
-**Leaks accepted and measured.**
+Molecular structures can encode confidential research and proprietary compound designs. An
+application may need to store these structures in a managed or shared database without granting the
+database operator access to their chemical content. The security requirement is therefore to keep
+readable molecular data outside the database's trust boundary while preserving useful computation.
 
-- Row count, tenant id, timestamps, change sequence.
-- Ciphertext size class (power-of-two classes from 256 bytes). Size class correlates with heavy-atom count. Molfiles are excluded from the searchable row for this reason.
-- Equality of exact keys within a tenant. The HMAC index shows that two rows share an exact key. It does not allow offline guess-and-confirm against public InChIKey lists.
+This requirement creates a practical difficulty for applications built around the RDKit PostgreSQL
+cartridge. Their chemical queries depend on representations that PostgreSQL can interpret. Encrypting
+those representations at the application boundary removes the information that the cartridge needs
+to execute its ordinary chemistry functions.
 
-**Against a write attacker.** Ciphertexts cannot be moved between rows, tenants or key versions. Wrapped tenant keys cannot be swapped between tenants. Tombstones and exact keys cannot be forged. Tampered ciphertext or snapshots are rejected.
+### 1.1 How database-side chemistry depends on readable structures
 
-**Not detectable** without a trusted root: rollback of a row to an earlier valid version, deletion of rows, and restoring an older backup. The engine detects sequence regression and rebuilds, but it cannot prove which state is correct. This is an explicit non-goal.
+The RDKit cartridge adds molecular and fingerprint types, chemical operators, descriptor functions,
+and GiST index support to PostgreSQL. Substructure matching operates on molecular graphs; similarity
+search operates on fingerprints that encode structural features. These operations consume RDKit
+representations rather than arbitrary encrypted bytes. The documented interface provides no native
+mechanism for applying these operators directly to application-encrypted molecular payloads. [RDKit cartridge reference](https://www.rdkit.org/docs/Cartridge.html).
 
-## Keys
+Binary storage does not itself provide confidentiality. Greg Landrum's RDKit community tutorial
+demonstrates transferring binary molecules into PostgreSQL, searching them, and reconstructing them
+in Python. Serialization changes the representation while retaining the molecular information. [Binary molecules and the cartridge](https://greglandrum.github.io/rdkit-blog/posts/2023-05-07-binary-molecules-and-the-cartridge.html).
 
-The key-encryption key must live outside the database host, its volumes and its backup set. In this POC it is a file whose path comes from `--key` or `MOLSEAL_KEY_FILE`. In production it should be a KMS or secrets manager.
+### 1.2 Why adding encryption alone is insufficient
 
-Rows use AES-256-GCM with a random 96-bit nonce on every encryption. The lifetime budget under one data key is about 2^32 encryptions (the NIST bound for random 96-bit nonces). Key versions are stored with every row and are the path to rotation. Rotation is not implemented.
+PostgreSQL supports several forms of encryption with different security boundaries. Transport
+encryption protects connections, and disk or filesystem encryption protects storage media. These can
+coexist with the cartridge because the running database still receives readable values. PostgreSQL's
+documentation identifies client-side encryption as the approach for keeping plaintext away from an
+untrusted database host. [PostgreSQL encryption options](https://www.postgresql.org/docs/current/encryption-options.html).
 
-## Quick start
+Column encryption with `pgcrypto` can also coexist with RDKit if the database decrypts values before
+using them. However, decryption then occurs inside PostgreSQL. Its documentation explicitly requires
+trust in the system and database administrators and recommends application-side cryptography when
+that trust is unavailable. [pgcrypto security limitations](https://www.postgresql.org/docs/current/pgcrypto.html).
 
-```bash
-uv sync
-docker compose up -d db        # PostgreSQL on port 5439
+The consequence for the cartridge follows from these interfaces: encrypting SMILES, serialized
+molecules, or fingerprints before insertion makes their ciphertext unusable by the corresponding
+ordinary chemical operators. Decrypting them in SQL restores functionality but also restores the
+database's access to their content. Keeping a readable molecular column or fingerprint index alongside
+an encrypted source field similarly leaves chemical information exposed.
 
-export MOLSEAL_DATABASE_URL=postgresql+psycopg://molseal:molseal@localhost:5439/molseal
-export MOLSEAL_KEY_FILE=/tmp/molseal.key
-export MOLSEAL_TENANT=$(python -c "import uuid; print(uuid.uuid4())")
-export MOLSEAL_SNAPSHOT_DIR=/tmp/molseal-snap
+| Storage and computation arrangement | Can the database access chemical content? | Where chemical operations execute |
+|---|---|---|
+| Cartridge with transport and disk encryption | Yes, during normal operation | PostgreSQL |
+| Encrypted columns decrypted in SQL | Yes, during decryption and computation | PostgreSQL |
+| Encrypted source structures with readable molecular or fingerprint columns | Yes, through the derived representations | PostgreSQL |
+| Application-encrypted payloads with keys outside PostgreSQL | Payloads remain encrypted; ordinary cartridge operators cannot use them directly | Requires computation outside PostgreSQL |
+| Molseal | Payloads remain encrypted; metadata and equality tokens are visible | Trusted application process |
 
-uv run python -c "import tests.mols as m; print('\n'.join(m.molecules()))" > /tmp/dev.smi
+The gap is thus **preserving chemical functionality when the database cannot decrypt molecular
+content**. Addressing it requires a storage and execution model that keeps both the source structures
+and their derived search representations within the intended confidentiality boundary.
 
-uv run molseal keygen $MOLSEAL_KEY_FILE
-uv run molseal load /tmp/dev.smi                 # writes /tmp/dev.smi.ids.tsv
-uv run molseal search 'c1ccccc1O'
-uv run molseal count 'c1ccccc1O'
-uv run molseal similar 'CC(=O)Oc1ccccc1C(=O)O' --threshold 0.5 --top 10
-```
+### 1.3 Fingerprints are also confidential chemical data
 
-Commands:
+Encrypting the original structure while exposing its fingerprint is insufficient for this security
+objective. Fingerprints retain information about molecular features. The Neuraldecipher study
+demonstrated reconstruction of molecular structures from exposed extended-connectivity fingerprints
+under its evaluated conditions; reconstruction depends on the representation and data and is not
+guaranteed for every molecule. This nevertheless establishes that fingerprints should not be treated
+as a cryptographic substitute for encryption. [Le et al., Chemical Science, 2020](https://pubs.rsc.org/en/content/articlelanding/2020/sc/d0sc03115a).
 
-- `molseal keygen PATH`
-- `molseal load FILE` (one SMILES per line)
-- `molseal search QUERY [--smarts] [--max N]`
-- `molseal count QUERY`
-- `molseal similar SMILES [--threshold T] [--top K]`
-- `molseal absence-check SIDECAR [--run-pg-dump] [--dump PATH] [--log PATH]`
-- `molseal leak-report SIDECAR`
+The issue has also been discussed directly in the RDKit community: an `rdkit-discuss` thread on
+reverse engineering fingerprints includes the study author's explanation of recovering SMILES from
+ECFP descriptors. This provides community context for protecting derived representations as well as
+source structures. [RDKit fingerprint reconstruction discussion](https://sourceforge.net/p/rdkit/mailman/rdkit-discuss/thread/7DED5A78-CA72-4A26-BA82-2F5F76458466%40bayer.com/).
 
-Each command takes `--db`, `--key`, `--tenant` and `--snapshot-dir`, or the environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY_FILE`, `MOLSEAL_TENANT` and `MOLSEAL_SNAPSHOT_DIR`.
+![Comparison of database-side chemical search and application-side search with encrypted storage.](docs/images/before-after.svg)
 
-## Search surface
+## 2. Project objective and approach
 
-Every search runs in the application process on an index built from the decrypted structures. The
-database only ever holds ciphertext.
+Molseal provides an encrypted storage and search layer for applications that need RDKit functionality
+while keeping molecular content confidential from the database. Its central design requirement is:
 
-### Fingerprint families
+> Persist molecular payloads only as ciphertext, keep decryption keys and readable search
+> representations outside the database, and execute chemical operations within the trusted application.
 
-A family is `FingerprintSpec(name, bits, generator)`: the name is its identity (change it when the
-generator changes), bits is a multiple of 64, generator is a zero-argument factory returning any RDKit
-fingerprint generator. Register families when you build the vault:
+PostgreSQL or SQLite provides persistence and transactional updates. The application encrypts and
+decrypts records, maintains an in-memory RDKit search index, and returns results through the vault API.
+The database does not require the RDKit extension. Fingerprints are computed in the application and
+persisted only within encrypted index snapshots. A keyed lookup table supports exact-key queries
+without storing the corresponding values in plaintext.
 
-```python
-from molseal.engine import MORGAN2, MORGAN2_CHIRAL, FEATMORGAN2
-vault = Vault(store, keys, tenant, families=(MORGAN2, FEATMORGAN2))
-```
+The current interface provides the following operations:
 
-| name | bits | generator | bytes per molecule |
+| Application requirement | Molseal support |
+|---|---|
+| Find molecules containing a chemical pattern | Substructure search and counts, including generalized and chirality-aware options |
+| Retrieve compounds similar to a reference | Fingerprint similarity with configurable families, metrics, thresholds, and result limits |
+| Retrieve records sharing a defined identifier | Authenticated exact-key lookup using tenant-specific HMAC tokens |
+| Perform further RDKit calculations | Decrypted payloads and fingerprint access within the trusted application |
+| Keep searchable state consistent with stored records | Transactional writes, cursor-based synchronization, and encrypted snapshots |
+
+This is an application API with a defined set of operations. Existing SQL queries that invoke the
+cartridge must be adapted to that API; Molseal does not implement every RDKit function or provide a
+transparent replacement for the cartridge's SQL interface. Additional descriptors and analyses can
+be computed by the application from retrieved structures, subject to the same confidentiality boundary.
+
+The contribution is the integration of encrypted persistence, key separation, and chemical execution
+within one library. The evaluation assesses whether this separation preserves the documented search
+semantics and provides practical performance. Collection size is an evaluation parameter, while
+confidentiality from the database is the motivating requirement.
+
+### 2.1 Relationship to privacy-preserving chemical search
+
+Cryptographic chemical search has an existing research literature. For example, Shimizu et al.
+developed a similarity-search protocol using additive homomorphic encryption to protect query and
+database information during an interaction between separate parties. [Privacy-preserving search for chemical compound databases, 2015](https://link.springer.com/article/10.1186/1471-2105-16-S18-S6).
+
+Molseal uses a different trust model: the application is authorized to decrypt the collection, and
+the database is responsible for encrypted persistence. Chemical computation occurs on plaintext in
+application memory. Its security therefore depends on protecting that process and its keys; it does
+not provide homomorphic execution or conceal structures from the application performing the search.
+
+## 3. System architecture
+
+![System architecture showing the trusted application and key provider, and the database storage boundary.](docs/images/architecture.svg)
+
+The system comprises three principal components:
+
+| Component | Responsibility | Data held |
+|---|---|---|
+| Application process | Encryption, decryption, index maintenance, and chemical search | Plaintext structures, fingerprints, and active keys |
+| Key provider | Supply the key-encryption key independently of database storage | Key-encryption key |
+| SQL database | Persist records and coordinate updates | Ciphertexts, wrapped tenant keys, keyed lookup hashes, and operational metadata |
+
+A `Vault` is the application-facing interface for one tenant. It combines a `StructureStore`, a
+`KeyProvider`, and a `StructureIndex`. The supplied `SqlStore` supports PostgreSQL and SQLite. The
+index uses RDKit's substructure library and a packed fingerprint matrix for each configured
+fingerprint family.
+
+Record identifiers belong to the calling application. Searches return identifiers, or identifiers
+with similarity scores, which the application can associate with its own registry and experimental
+metadata. Molseal does not impose a compound registry schema or manage those external tables.
+
+### 3.1 Record ingestion and encryption
+
+![Write path: canonicalization, payload encoding, padding, authenticated encryption, and database storage.](docs/images/write-path.svg)
+
+For each inserted or updated structure, the application:
+
+1. Parses and canonicalizes the input SMILES with RDKit.
+2. Encodes the canonical SMILES, caller-supplied exact keys, and deletion state in a JSON payload.
+3. Pads the payload to a power-of-two size class, with a minimum of 256 bytes.
+4. Encrypts the payload using AES-256-GCM and a fresh random 96-bit nonce.
+5. Computes HMAC-SHA256 values for any exact keys using a separate tenant-specific key.
+6. Commits the encrypted record, lookup hashes, and change-sequence update in one transaction.
+7. Updates the local search index.
+
+Authenticated associated data binds a ciphertext to its tenant, record identifier, data-key version,
+and row version. Changing these labels causes authentication to fail during decryption. Concurrent
+writers use row-version comparisons and retry conflicting writes.
+
+`put_many` performs validation and commits in chunks. Each chunk is atomic; a failure in a later
+chunk does not undo earlier committed chunks. Deletion creates an encrypted tombstone and removes
+the record from the active search set.
+
+### 3.2 Search and synchronization
+
+![Search path: inspect the tenant cursor, synchronize changed records, and query the in-memory index.](docs/images/search-path.svg)
+
+Before a substructure or similarity search, the vault reads the tenant's change cursor. If the
+cursor has advanced, it retrieves changed records, decrypts their payloads, and updates the local
+index before evaluating the query. With an unchanged cursor, this path requires a tenant-state
+read followed by in-memory search.
+
+A successful local write updates the index in the same call. Other processes discover committed
+changes through subsequent cursor checks. A backward-moving cursor triggers a rebuild; the refresh
+path also rebuilds when the observed live count disagrees with the index state. These mechanisms
+support synchronization but do not establish the authenticity of the database's complete history.
+
+Exact-key lookup follows a separate path: the application computes the keyed hash, retrieves
+candidate records from the database, and verifies the requested value against their decrypted
+payloads.
+
+### 3.3 Encrypted snapshots
+
+The in-memory index can be saved as an encrypted snapshot to reduce startup work. On initialization,
+the vault loads an available, compatible snapshot and synchronizes subsequent database changes.
+Without a usable snapshot, it rebuilds the index from encrypted database records.
+
+Snapshots are saved explicitly through `save_snapshot()`. Fingerprint families missing from a
+snapshot are computed from its stored structures when loaded. Saving a new snapshot preserves those
+computed families for later starts.
+
+## 4. Security model and boundaries
+
+The principal adversary has read access to the database, including its data files, backups, replicas,
+write-ahead log, and statement logs. The design also considers modification of database records.
+The application process and key provider are trusted, and the key-encryption key must remain outside
+the database host and its backup set.
+
+### 4.1 Confidentiality and integrity
+
+Under these assumptions, molecular payloads are encrypted before they reach SQL storage. Plaintext
+structures and fingerprints are retained in application memory, while exact-key values are stored
+inside encrypted payloads and represented in the lookup table by keyed hashes. Without the HMAC key,
+a database-only attacker cannot directly hash a candidate identifier to confirm a guess.
+
+Authenticated encryption detects altered payloads and substitutions across the bound tenant, record,
+and version labels. Wrapped keys are similarly bound to tenant, key type, and version. Deletion state
+and exact-key values are verified from authenticated payloads, and snapshots are authenticated when
+loaded.
+
+These properties do not establish completeness or freshness. An attacker may delete records,
+suppress lookup results, replay an earlier valid record, or restore an older database. Without an
+external trusted record of state, Molseal cannot reliably distinguish all such actions from valid
+history or guarantee availability.
+
+### 4.2 Observable information
+
+Encryption does not conceal all database information. Visible metadata includes record and tenant
+identifiers, row counts, timestamps, versions, deletion flags, change sequences, and exact-key categories. Repeated
+lookup hashes reveal equality within a tenant. Database access also exposes which records are
+retrieved and when.
+
+Padding reduces precision in payload-length observations, but the resulting size class remains
+visible and may correlate with molecular size. The benchmark includes a leakage report that measures
+this relationship. Equality and metadata may also support inferences when combined with outside
+knowledge.
+
+The confidentiality boundary applies to Molseal's database representation. Input files, application
+logs, exported payloads, and process memory require protection by the surrounding application. The
+CLI loader creates a plaintext `.ids.tsv` sidecar for validation; this file contains structures and
+exact keys and belongs within the trusted environment.
+
+### 4.3 Key management
+
+Each tenant has a data-encryption key and a separate HMAC key. Both are wrapped under a key-encryption
+key and stored with version identifiers. The supplied `FileKeyProvider` reads a 32-byte key from a
+file. The `KeyProvider` interface allows other providers, but built-in
+KMS integrations and key rotation are not implemented.
+
+Encryption uses randomly generated nonces. The implementation does not enforce a per-key encryption
+budget or automatically rotate keys; version fields provide a foundation for future rotation work.
+
+## 5. Chemical search methods
+
+### 5.1 Fingerprint representations
+
+A fingerprint family is described by `FingerprintSpec(name, bits, generator)`. Its generator is a
+zero-argument factory returning an RDKit fingerprint generator. The bit width must be a positive
+multiple of 64 and less than 65,536. A family name identifies its semantics and must change if the
+generator definition changes.
+
+| Family | Representation | Width | Packed storage per indexed position |
 |---|---|---|---|
-| `morgan2` (default) | 2048 | Morgan radius 2 | 258 |
-| `morgan2-chiral` | 2048 | Morgan radius 2 with chirality | 258 |
-| `featmorgan2` | 2048 | feature-Morgan radius 2 | 258 |
+| `morgan2` (default) | Morgan, radius 2 | 2,048 bits | 258 bytes |
+| `morgan2-chiral` | Morgan, radius 2, with chirality | 2,048 bits | 258 bytes |
+| `featmorgan2` | Feature-Morgan, radius 2 | 2,048 bits | 258 bytes |
 
-Declare every family in `Vault(..., families=)`; that tuple is what every rebuild and every snapshot
-load uses. To add a family to a populated tenant, construct the vault with the new tuple: the first load
-computes the new family from the structures already indexed. A snapshot carries families by name and
-recomputes a missing one on load; the vault never saves on its own, so that recompute repeats on every
-start until you save a snapshot, and "no database read" holds only when a snapshot exists (without one
-the vault rebuilds from the database as always).
+The storage figure includes 256 bytes of fingerprint bits and a two-byte population count; it
+excludes the rest of the index and spare allocation capacity. Families are configured through
+`Vault(..., families=...)` and used during rebuilds and snapshot loading. Only binary fingerprints
+are supported.
 
-### Similarity
+### 5.2 Similarity search
 
-```python
-vault.similar(smiles, threshold=0.7, top_k=None, family="morgan2", metric=tanimoto)
-```
+Similarity search computes bit intersections against the stored fingerprint matrix. For query and
+target bit counts `a` and `b`, and intersection count `c`, the supplied metrics are:
 
-A metric is a plain function of three counts, the intersection `c`, the query's bits `a` and the
-target's bits `b`, in `molseal.metrics`. Any function with that shape works.
-
-| metric | formula |
+| Metric | Definition |
 |---|---|
-| `tanimoto` | c / (a + b − c) |
-| `dice` | 2c / (a + b) |
-| `cosine` | c / √(a·b) |
-| `tversky(query_weight, target_weight)` | c / (α(a − c) + β(b − c) + c) |
+| Tanimoto | `c / (a + b − c)` |
+| Dice | `2c / (a + b)` |
+| Cosine | `c / sqrt(a × b)` |
+| Tversky | `c / (α(a − c) + β(b − c) + c)` |
 
-Results are exact: every fingerprint is compared, there is no index and no approximation.
-
-### Substructure
+The implementation returns zero when the denominator is zero. Tversky's `query_weight` and
+`target_weight` correspond to `α` and `β`; both lie in `[0, 1]`. With `tversky(1, 0)`, the score is the
+fraction of query fingerprint bits present in the target. This is a fingerprint containment measure,
+not a molecular substructure test.
 
 ```python
-vault.substructure(query, kind="smiles", max_results=None, generalized=False, use_chirality=False)
-vault.count_substructure(query, kind="smiles", generalized=False, use_chirality=False)
+vault.similar(smiles, threshold=0.7, top_k=None, family="morgan2", metric=metrics.tanimoto)
 ```
 
-| option | meaning |
+Results are `(identifier, score)` pairs ordered by decreasing score. Search exhaustively compares
+fingerprints; it uses no approximate nearest-neighbor method or similarity index. Scores are exact
+for the selected fingerprint representation and metric. Custom metrics may be supplied as functions
+accepting intersection counts, a query bit count, and target bit counts, and returning a NumPy score
+array.
+
+### 5.3 Substructure search
+
+```python
+vault.substructure(query, kind="smiles", max_results=None,
+                   generalized=False, use_chirality=False)
+vault.count_substructure(query, kind="smiles",
+                         generalized=False, use_chirality=False)
+```
+
+| Option | Behavior |
 |---|---|
-| `kind` | `smiles`; `smarts`, taken literally with no aromaticity perception; `molblock`, sanitized with explicit hydrogens removed |
-| `generalized` | tautomer-insensitive matching through RDKit's extended query mol, with the same defaults as the cartridge's `@>>` |
-| `use_chirality` | defined stereo in the query must match defined stereo in the target, tetrahedral and E/Z |
-| `max_results` | an arbitrary subset of the matches of that size; stable across runs only with one thread |
+| `kind="smiles"` | Parse a molecular structure as the query |
+| `kind="smarts"` | Interpret the supplied query pattern literally, without aromaticity perception |
+| `kind="molblock"` | Sanitize the molblock and remove explicit hydrogens |
+| `generalized=True` | Use RDKit's extended query representation for tautomer-insensitive matching, with the defaults used by the cartridge's `@>>` operation |
+| `use_chirality=True` | Require defined query stereochemistry to match defined target stereochemistry |
+| `max_results` | Limit returned matches to an arbitrary subset; subset stability across runs requires one thread |
 
-### Bulk reads
+Substructure matching uses RDKit's substructure library with pattern-fingerprint screening; the screen
+is RDKit's tautomer pattern holder, so generalized queries keep it. Searches
+can use multiple RDKit threads; a vault serializes its search and update operations with one lock.
+
+### 5.4 Chemical interpretation and constraints
+
+Canonicalization is the only structure preparation performed during ingestion. Salt handling,
+charge normalization, and tautomer standardization remain application responsibilities. Stored
+structures and queries should follow a consistent preparation policy.
+
+Similarity remains tautomer-sensitive even when generalized substructure search is enabled.
+Thresholds are specific to the fingerprint family and metric; a meaningful search preset therefore
+specifies all three of family, metric, and threshold.
+
+With chirality enabled, undefined query stereochemistry does not constrain the target, whereas a
+defined query stereocenter requires a matching defined target. The RDKit trusted SMILES holder does
+not assign double-bond stereochemistry, so E/Z queries first retrieve candidates without chirality
+and then reparse and verify each candidate with chirality enabled. Broad queries can consequently
+incur substantial additional work while holding the vault lock.
+
+Generalized queries have a further limitation: RDKit's extended query representation can discard
+tetrahedral stereochemistry within tautomeric regions. For example, generalized matching of
+`N[C@@H](C)C(=O)O` returns both alanine enantiomers even with chirality enabled.
+
+SMARTS aromaticity is literal: a Kekulé SMARTS pattern does not match an aromatic target merely
+because the forms represent the same chemistry. Molblock queries remove explicit hydrogens so that
+hydrogens added by a sketcher do not become required query atoms.
+
+### 5.5 Exact lookup and analytical access
+
+`find_exact(kind, value)` retrieves records by a caller-supplied exact key. The library does not
+define chemical identity or automatically generate those keys; their meaning depends on the
+application's registration and standardization policy.
+
+Bulk access supports downstream analysis:
 
 ```python
-payloads = vault.get_many(ids)                           # {id: Payload} for the live rows
-found, rows = vault.fingerprints(ids, family="morgan2")   # packed uint8 rows, one per live id found
+payloads = vault.get_many(ids)                          # {id: Payload}, with .smiles and .keys
+found, rows = vault.fingerprints(ids, family="morgan2")  # corresponding ids and packed uint8 rows
 ```
 
-A packed row becomes an RDKit bit vector in two lines:
+Unknown and deleted records are omitted. Fingerprint access returns live, indexed records in the
+requested order. A packed row can be converted to an RDKit bit vector as follows:
 
 ```python
+import numpy as np
+from rdkit import DataStructs
+
 bv = DataStructs.ExplicitBitVect(2048)
 bv.SetBitsFromList(np.flatnonzero(np.unpackbits(row)).tolist())
 ```
 
-Clustering, diverse picking, scaffold analysis and the like run in your own code on those rows and
-payloads. The library does not implement them. Fingerprints are partially invertible: treat the rows
-as confidential as the structures.
+Applications can use these representations for clustering, diversity selection, or scaffold
+analysis; Molseal does not implement those workflows. Fingerprints encode structural information
+and should be treated as confidential. The [registry adapter example](docs/examples/registry-adapter.md)
+illustrates how the primitives support registration, sketcher queries, deduplication, and analysis.
 
-### Chemistry notes
+## 6. Evaluation
 
-1. Standardization is yours. The library canonicalizes and nothing more: salts, charges and tautomers
-   are stored as given. Run a query through the same standardizer as the stored structures.
-2. Similarity is tautomer-sensitive even though generalized substructure is not.
-3. Tversky: `query_weight` (alpha) weights bits only in the query, `target_weight` (beta) bits only in
-   the target. `tversky(1, 0)` scores how much of the query is inside the target.
-4. Thresholds do not transfer across families or metrics: Dice runs higher than Tanimoto on the same
-   pair, feature-Morgan higher than Morgan. A preset is a (family, metric, threshold) triple.
-5. With chirality on, undefined stereo in the query matches anything and undefined stereo in the
-   target never matches a defined query. The chiral family likewise needs stereo assigned on both sides.
-   RDKit's trusted SMILES holder never assigns double-bond stereo, so a chirality-on query with a defined
-   double bond is searched with chirality off and only its candidate hits are re-parsed and checked with
-   chirality; tetrahedral-only queries use the native path. The cost is one full parse per candidate, so
-   a broad E/Z query on a large library pays for every candidate. The check runs under the vault's single
-   lock, so a broad E/Z query blocks that vault's other reads and writes while it runs.
-   Under `generalized=True`, RDKit's extended query drops tetrahedral stereo at centres inside tautomeric
-   zones (every stereocentre next to a carbonyl), so `use_chirality` cannot tell them apart:
-   `N[C@@H](C)C(=O)O` returns both alanine enantiomers.
-6. SMARTS is literal: a Kekulé SMARTS does not match aromatic targets. Molblock queries drop explicit
-   hydrogens, so a sketcher's hydrogens do not become required atoms.
-7. All families are bit vectors. Count-based fingerprints are not supported.
+The evaluation addresses two questions: whether Molseal returns the same results as database-side
+chemistry, and whether its stored representation exposes molecular content.
 
-Memory: 258 bytes per molecule per 2048-bit family on top of the substructure library. Saving a snapshot
-costs more than holding the index: at 500k molecules with three families the process peaked near 4 GB
-resident, measured at the end of the run after the gates and the snapshot save, against about 0.9 GB
-during the rebuild itself. A snapshot of an
-older format is ignored and the index is rebuilt from the database; the next save writes the current
-format.
+Correctness is assessed with parity gates. Each gate runs the same queries through Molseal and
+through a reference implementation and requires identical hit sets, counts, and scores. The reference
+is the RDKit PostgreSQL cartridge where it provides the operation and RDKit in Python where it does
+not. Ten gates cover fingerprint bytes, substructure matching, similarity for each family and metric,
+generalized and chirality-aware matching, and molblock queries. A benchmark run publishes results
+only when every gate passes.
 
-A worked mapping of a compound registry onto these primitives is in `docs/examples/registry-adapter.md`.
+Confidentiality is assessed with an absence check. It searches for every stored structure and exact
+key in the database columns, in a `pg_dump` output, and in a statement log, using a planted control
+record that each search must detect. A leakage report measures how much the ciphertext size class
+reveals about molecular size.
 
-## Absence check
+On 500,000 ChEMBL structures, single-threaded substructure search matched the speed of the indexed
+cartridge, and similarity search ran within a few milliseconds of it. The procedure, result files,
+and leakage report are available under [`docs/results/`](docs/results/README.md).
 
-`absence-check` reads every SMILES and exact key in the sidecar and searches for each one, as raw bytes and as the hex digits PostgreSQL prints for `bytea` (`\x...` in `pg_dump -Fp` COPY data and in statement logs), in three places: the tenant's database columns, a plain dump (`--dump PATH` or `--run-pg-dump`), and a statement log (`--log PATH`). Any hit fails the run.
+## 7. Installation and usage
 
-A negative control proves each leg can see a leak. The command plants a control row whose ciphertext is a fixed plaintext marker for the tenant (seq 0, tombstoned, so no vault reads it) and leaves it in place. The database leg and every dump leg must find it, or the run fails. `--run-pg-dump` plants first and then dumps. For `--dump PATH`, run the check once without `--dump` to plant the control, then take the dump with `pg_dump -Fp --compress=0`, then run the check with `--dump`. If `--run-pg-dump` cannot run `pg_dump`, the run fails. The log leg carries no control, because the log is captured before the check runs. The JSON reports its hits and `"log_control": "not applicable"`.
+### 7.1 Environment
 
-Tests: `uv run pytest`. Set `MOLSEAL_TEST_DATABASE_URL` to also run the PostgreSQL tests.
+The project requires Python 3.13 or later. Dependencies include RDKit, NumPy, SQLAlchemy, psycopg,
+and cryptography. From a local checkout, install the project with:
 
-## Results
+```bash
+pip install .
+```
 
-500,000 ChEMBL 37 rows against the RDKit PostgreSQL cartridge (`Release_2025_03_3`), Docker VM with 6 CPUs
-and 15.6 GiB, arm64. All four parity gates passed (fingerprint bytes; substructure counts, with
-`count_substructure`, hit lists and the cartridge `count(*)` all equal; id sets; similarity ids and scores),
-and every one of the 72 substructure queries hits at least one row. Files, metadata, memory peaks and the
-full-ChEMBL estimate: [`docs/results/2026-10-13-500k/`](docs/results/README.md).
-2026-10-14: parity-only run for the search surface, gates 5–10, in `docs/results/2026-10-14-500k-search-surface/`.
-Times are seconds; each query's time is the median of 5 repeats, and p50 (median) and p95 (nearest rank)
-are taken across queries.
+For development, use `uv sync`. PostgreSQL integration tests can use the supplied development service:
 
-| side | where | mode | threads | op | cap | queries | p50 s | p95 s |
-|---|---|---|---|---|---|---|---|---|
-| cartridge | vm | cold | 1 | consumer_path | uncapped | 5 | 39.2377 | 39.5751 |
-| cartridge | vm | cold | 1 | count | uncapped | 72 | 0.1043 | 6.1842 |
-| cartridge | vm | cold | 1 | similar | uncapped | 50 | 0.0091 | 0.0145 |
-| cartridge | vm | cold | 1 | substructure | capped | 72 | 0.0306 | 0.2874 |
-| cartridge | vm | cold | 1 | substructure | uncapped | 72 | 0.1097 | 6.2286 |
-| cartridge | vm | cold | 1 | topk100 | capped | 50 | 0.0130 | 0.0204 |
-| cartridge | vm | warm | 1 | consumer_path | uncapped | 5 | 39.0110 | 39.1015 |
-| cartridge | vm | warm | 1 | count | uncapped | 72 | 0.1023 | 6.0929 |
-| cartridge | vm | warm | 1 | similar | uncapped | 50 | 0.0094 | 0.0151 |
-| cartridge | vm | warm | 1 | substructure | capped | 72 | 0.0301 | 0.2835 |
-| cartridge | vm | warm | 1 | substructure | uncapped | 72 | 0.1064 | 6.1174 |
-| cartridge | vm | warm | 1 | topk100 | capped | 50 | 0.0130 | 0.0207 |
-| molseal | host | warm | -1 | count | uncapped | 72 | 0.0095 | 0.5374 |
-| molseal | host | warm | -1 | end_to_end | capped | 72 | 0.0237 | 0.6327 |
-| molseal | host | warm | -1 | similar | uncapped | 50 | 0.0123 | 0.0139 |
-| molseal | host | warm | -1 | substructure | capped | 72 | 0.0054 | 0.0348 |
-| molseal | host | warm | -1 | substructure | uncapped | 72 | 0.0125 | 0.6080 |
-| molseal | host | warm | -1 | topk100 | capped | 50 | 0.0160 | 0.0184 |
-| molseal | host | warm | 1 | count | uncapped | 72 | 0.0582 | 4.7110 |
-| molseal | host | warm | 1 | similar | uncapped | 50 | 0.0120 | 0.0122 |
-| molseal | host | warm | 1 | substructure | capped | 72 | 0.0124 | 0.1543 |
-| molseal | host | warm | 1 | substructure | uncapped | 72 | 0.0610 | 4.7600 |
-| molseal | host | warm | 1 | topk100 | capped | 50 | 0.0151 | 0.0162 |
-| molseal | vm | cold | -1 | count | uncapped | 72 | 0.0174 | 1.3943 |
-| molseal | vm | cold | -1 | end_to_end | capped | 72 | 0.0279 | 1.5601 |
-| molseal | vm | cold | -1 | similar | uncapped | 50 | 0.0221 | 0.0223 |
-| molseal | vm | cold | -1 | substructure | capped | 72 | 0.0060 | 0.0552 |
-| molseal | vm | cold | -1 | substructure | uncapped | 72 | 0.0205 | 1.9122 |
-| molseal | vm | cold | -1 | topk100 | capped | 50 | 0.0254 | 0.0265 |
-| molseal | vm | cold | 1 | count | uncapped | 72 | 0.0691 | 5.8718 |
-| molseal | vm | cold | 1 | similar | uncapped | 50 | 0.0226 | 0.0233 |
-| molseal | vm | cold | 1 | substructure | capped | 72 | 0.0157 | 0.2103 |
-| molseal | vm | cold | 1 | substructure | uncapped | 72 | 0.0719 | 6.0450 |
-| molseal | vm | cold | 1 | topk100 | capped | 50 | 0.0260 | 0.0272 |
-| molseal | vm | warm | -1 | count | uncapped | 72 | 0.0167 | 1.3607 |
-| molseal | vm | warm | -1 | end_to_end | capped | 72 | 0.0275 | 1.5352 |
-| molseal | vm | warm | -1 | similar | uncapped | 50 | 0.0221 | 0.0225 |
-| molseal | vm | warm | -1 | substructure | capped | 72 | 0.0060 | 0.0548 |
-| molseal | vm | warm | -1 | substructure | uncapped | 72 | 0.0209 | 1.5232 |
-| molseal | vm | warm | -1 | topk100 | capped | 50 | 0.0255 | 0.0266 |
-| molseal | vm | warm | 1 | count | uncapped | 72 | 0.0708 | 5.7643 |
-| molseal | vm | warm | 1 | similar | uncapped | 50 | 0.0223 | 0.0234 |
-| molseal | vm | warm | 1 | substructure | capped | 72 | 0.0170 | 0.2102 |
-| molseal | vm | warm | 1 | substructure | uncapped | 72 | 0.0745 | 5.9177 |
-| molseal | vm | warm | 1 | topk100 | capped | 50 | 0.0256 | 0.0272 |
+```bash
+docker compose up -d db
+```
 
-- **side**: `molseal` is encrypted rows with search in process; `cartridge` is the RDKit PostgreSQL cartridge.
-- **where**: `vm` is the head-to-head inside the Docker VM under one CPU and memory budget. molseal runs in a
-  container in the VM; the cartridge database runs in the VM, but its Python client runs on the Mac through
-  the Docker port forward (the round trip is in its times). `host` is molseal native on the Mac, reported separately.
-- **mode**: see "What cold means" below.
-- **threads**: molseal with 1 thread or all cores (`-1`); the cartridge is one PostgreSQL backend on one
-  core (`max_parallel_workers_per_gather=0`).
-- **op**: `substructure` returns ids, `count` returns a count, `similar` is Tanimoto >= 0.7 on Morgan r2/2048
-  (the cartridge returns ids only, molseal ids with scores), `topk100` is the 100 nearest (no parity gate),
-  `end_to_end` adds molseal's tenant-state check and a fetch of up to 1000 hit rows, `consumer_path` is the
-  cartridge's unindexed `mol_from_smiles(smiles) @> q` (5 queries, one run each), not the baseline.
-- **cap**: `capped` stops at 1000 hits (`maxResults=1000` vs `LIMIT 1000`); `uncapped` returns every hit.
-- **queries**: how many queries the row's percentiles cover.
+This starts PostgreSQL on port 5439. SQLite can be used for a self-contained local example.
 
-What cold means here. Cartridge `cold` is right after a container restart, with `pg_buffercache` showing
-shared buffers nearly empty (196 pages); the Docker VM's page cache is not dropped, and each query runs
-once untimed as `count(*)` and once as a warm-up before the timed repeats, so cold and warm cartridge
-rows are nearly equal. Cartridge `warm` adds `pg_prewarm` of the table and both indexes. molseal `cold`
-and `warm` are the same procedure (a fresh process loads the snapshot, then one untimed warm-up per
-query); molseal's real cold cost is loading the 169 MB snapshot: `cold_load_s` 0.73 s and 0.80 s in the
-VM, 0.82 s host-native.
+### 7.2 Minimal example
 
-Leak report (500k rows): ciphertext size class correlates with heavy-atom count at Pearson r = 0.7767, but
-predicting the 10-heavy-atom bucket from the size class is right 43.0% of the time against a 42.7% majority
-baseline. Size classes: 256 B 490,357 rows, 512 B 8,278, 1024 B 1,347, 2048 B 15.
+The following example uses a temporary directory so that it can be run without a PostgreSQL server.
+For a persistent deployment, retain a stable tenant identifier and store the key separately from the
+database host and its backups.
 
-Memory peaks (`docker stats`): cartridge container 1.25 GiB during the GiST builds (load run, ~30 s samples)
-and 1.30 GiB during timing; molseal bench container 0.62 GiB (process `max_rss` 1118 MB); molseal
-host-native process `max_rss` 1402 MB.
+```python
+import uuid
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-## What is deliberately not built
+import sqlalchemy as sa
 
-- Key rotation
-- Molfile storage
-- Multi-process invalidation
-- Async API
-- KMS key providers
-- Any consumer adapter
-- Count-based fingerprints
-- A similarity index (every query scans every fingerprint)
-- Readers-writer lock
+from molseal import keys, metrics
+from molseal.engine import FEATMORGAN2, MORGAN2
+from molseal.store import SqlStore
+from molseal.vault import Vault
 
-## License
+with TemporaryDirectory() as directory:
+    root = Path(directory)
+    key_path = root / "molseal.key"
+    keys.generate_key_file(key_path)
 
-BSD-3-Clause.
+    engine = sa.create_engine(f"sqlite:///{root / 'structures.db'}")
+    store = SqlStore(engine)
+    store.create_tables()
+    vault = Vault(
+        store,
+        keys.FileKeyProvider(key_path),
+        tenant_id=uuid.uuid4(),
+        snapshot_dir=root / "snapshots",
+        families=(MORGAN2, FEATMORGAN2),
+    )
 
-## Data attribution
+    compound_id = uuid.uuid4()
+    smiles = "CC(=O)Oc1ccccc1C(=O)O"
+    inchikey = "BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
+    vault.put(compound_id, smiles, {"inchikey": inchikey})
 
-Benchmark queries and results derive from ChEMBL 37, EMBL-EBI, CC BY-SA 3.0, https://www.ebi.ac.uk/chembl/ .
-Slices are generated locally and not redistributed. The published query sets
-(`docs/results/**/queries_*.json`) hold ChEMBL SMILES and fragments of them and are CC BY-SA 3.0, not BSD-3.
+    substructure_hits = vault.substructure("c1ccccc1C(=O)O")
+    similarity_hits = vault.similar(smiles, threshold=0.7)
+    feature_hits = vault.similar(smiles, threshold=0.55, family="featmorgan2")
+    containment_hits = vault.similar(smiles, threshold=0.7, metric=metrics.tversky(1, 0))
+    exact_hits = vault.find_exact("inchikey", inchikey)
+
+    payloads = vault.get_many([compound_id])
+    found, fingerprints = vault.fingerprints([compound_id], family="morgan2")
+    vault.save_snapshot()
+    engine.dispose()
+```
+
+To use PostgreSQL, construct the SQLAlchemy engine with a URL such as
+`postgresql+psycopg://user:password@localhost/database`. For bulk ingestion, pass an iterable of
+`(id, smiles, exact_keys)` tuples to `vault.put_many(rows)`.
+
+### 7.3 Command-line interface
+
+```text
+molseal keygen PATH
+molseal load FILE                      # one SMILES per line
+molseal search QUERY [--smarts] [--max N]
+molseal count QUERY [--smarts]
+molseal similar SMILES [--threshold T] [--top K]
+molseal absence-check SIDECAR [--run-pg-dump] [--dump PATH] [--log PATH]
+molseal leak-report SIDECAR
+```
+
+Database commands accept `--db`, `--key`, `--tenant`, and `--snapshot-dir`, or the corresponding
+environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY_FILE`, `MOLSEAL_TENANT`, and
+`MOLSEAL_SNAPSHOT_DIR`. Key generation takes a file path and refuses to overwrite an existing key.
+
+## 8. Limitations and future work
+
+The current design requires the searchable collection and its configured fingerprints to fit in
+application memory. Each process maintains its own index, similarity search scans the fingerprint
+matrix, and a single vault lock serializes searches and updates. These properties define the current
+scaling constraints.
+
+Future work includes similarity indexing,
+count-based fingerprints, molfile storage, an asynchronous API, and more concurrent index access.
+Cross-process synchronization currently relies on cursor checks rather than a separate invalidation
+service. Rollback detection would require an additional trusted source of state.
+
+Application-specific registration rules, chemical standardization, authorization, and analytical
+workflows remain responsibilities of the integrating application. Design specifications, milestone
+reviews, and proposed extensions are retained under [`docs/`](docs/).
+
+## 9. Development and reproducibility
+
+Install development dependencies and run the test suite with:
+
+```bash
+uv sync
+uv run pytest
+```
+
+Set `MOLSEAL_TEST_DATABASE_URL` to a PostgreSQL connection URL to include PostgreSQL store tests.
+The [benchmark guide](bench/README.md) describes dataset preparation, parity checks, timing, and
+report generation. Benchmark slices are generated locally and are not committed to the repository.
+
+Issues and pull requests are welcome. Changes to chemistry or storage behavior should include
+validation appropriate to the affected operation and preserve the documented security boundary.
+
+## License and data attribution
+
+The project code is distributed under the [BSD-3-Clause license](LICENSE). Benchmark queries and
+results derive from ChEMBL 37 (EMBL-EBI, CC BY-SA 3.0, https://www.ebi.ac.uk/chembl/). Slices are
+generated locally and not redistributed; the published query sets under `docs/results/` contain ChEMBL
+SMILES and fragments of them and are CC BY-SA 3.0, not BSD-3.

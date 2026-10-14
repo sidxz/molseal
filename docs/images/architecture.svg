@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 310" role="img" aria-label="The application process and the key store are trusted and hold plaintext or keys; the database host holds encrypted molecular payloads, keyed hashes, and metadata." font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#1b2430"/></marker></defs>
+  <rect width="900" height="310" rx="10" fill="#ffffff"/>
+  <rect x="20" y="104" width="460" height="186" rx="8" fill="none" stroke="#1e7a5a" stroke-dasharray="5 4"/>
+  <text x="32" y="124" font-weight="600" fill="#1e7a5a">Trusted: your application process</text>
+  <rect x="520" y="16" width="360" height="86" rx="8" fill="none" stroke="#1e7a5a" stroke-dasharray="5 4"/>
+  <text x="532" y="36" font-weight="600" fill="#1e7a5a">Trusted: key store, outside the database host</text>
+  <rect x="520" y="124" width="360" height="166" rx="8" fill="none" stroke="#b4471d" stroke-dasharray="5 4"/>
+  <text x="532" y="144" font-weight="600" fill="#b4471d">Untrusted: database host, backups, replicas, logs</text>
+  <rect x="40" y="144" width="150" height="50" rx="6" fill="#ffffff" stroke="#1b2430" stroke-width="1.2"/><text x="115" y="174" text-anchor="middle" fill="#1b2430">Your app</text>
+  <rect x="240" y="144" width="180" height="50" rx="6" fill="#e3ecf9" stroke="#2456a4" stroke-width="1.2"/><text x="330" y="174" text-anchor="middle" fill="#1b2430">molseal (library)</text>
+  <rect x="240" y="216" width="180" height="58" rx="6" fill="#e2f2eb" stroke="#1e7a5a" stroke-width="1.2"/><text x="330" y="238" text-anchor="middle" fill="#1b2430">In-memory index</text><text x="330" y="257" text-anchor="middle" font-size="11" fill="#5c6a79">plaintext SMILES + fingerprints</text>
+  <rect x="560" y="48" width="200" height="44" rx="6" fill="#e2f2eb" stroke="#1e7a5a" stroke-width="1.2"/><text x="660" y="67" text-anchor="middle" fill="#1b2430">Key provider</text><text x="660" y="84" text-anchor="middle" font-size="11" fill="#5c6a79">file; custom provider for KMS</text>
+  <rect x="560" y="160" width="200" height="56" rx="6" fill="#f8e8df" stroke="#b4471d" stroke-width="1.2"/><text x="660" y="182" text-anchor="middle" fill="#1b2430">PostgreSQL or SQLite</text><text x="660" y="201" text-anchor="middle" font-size="11" fill="#5c6a79">ciphertext, keyed hashes, counts</text>
+  <text x="540" y="240" font-size="11" fill="#b4471d">Someone with database access sees:</text>
+  <text x="540" y="256" font-size="11" fill="#b4471d">ciphertext, size classes, row counts, keyed hashes.</text>
+  <text x="540" y="272" font-size="11" fill="#b4471d">Molecular payloads remain encrypted.</text>
+  <line x1="190" y1="169" x2="238" y2="169" stroke="#1b2430" stroke-width="1.2" marker-end="url(#a)"/><text x="214" y="160" text-anchor="middle" font-size="11" fill="#5c6a79">put / search</text>
+  <line x1="330" y1="194" x2="330" y2="214" stroke="#1b2430" stroke-width="1.2" marker-end="url(#a)"/><text x="340" y="208" font-size="11" fill="#5c6a79">builds, queries</text>
+  <polyline points="560,70 330,70 330,142" fill="none" stroke="#1b2430" stroke-width="1.2" marker-end="url(#a)"/><text x="445" y="62" text-anchor="middle" font-size="11" fill="#5c6a79">key-encryption key</text>
+  <line x1="422" y1="188" x2="558" y2="188" stroke="#1b2430" stroke-width="1.2" marker-start="url(#a)" marker-end="url(#a)"/><text x="490" y="180" text-anchor="middle" font-size="11" fill="#5c6a79">ciphertext + metadata</text>
+</svg>

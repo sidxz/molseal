@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" role="img" aria-label="With a database cartridge, search runs inside the database on plaintext; with molseal it runs inside the application and the database holds ciphertext." font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#1b2430"/></marker></defs>
+  <rect width="900" height="220" rx="10" fill="#ffffff"/>
+  <text x="30" y="32" font-weight="600" fill="#1b2430">Chemistry cartridge: search inside the database</text>
+  <rect x="30" y="70" width="120" height="48" rx="6" fill="#ffffff" stroke="#1b2430" stroke-width="1.2"/><text x="90" y="98" text-anchor="middle" fill="#1b2430">App</text>
+  <rect x="230" y="50" width="200" height="90" rx="6" fill="#f8e8df" stroke="#b4471d" stroke-width="1.2"/>
+  <text x="330" y="74" text-anchor="middle" fill="#1b2430">Database + cartridge</text>
+  <text x="330" y="94" text-anchor="middle" font-size="11" fill="#5c6a79">readable molecular data</text>
+  <text x="330" y="120" text-anchor="middle" fill="#2456a4">search runs here</text>
+  <line x1="150" y1="86" x2="228" y2="86" stroke="#1b2430" stroke-width="1.2" marker-end="url(#b)"/><text x="189" y="78" text-anchor="middle" font-size="11" fill="#5c6a79">query</text>
+  <line x1="228" y1="106" x2="152" y2="106" stroke="#1b2430" stroke-width="1.2" marker-end="url(#b)"/><text x="189" y="122" text-anchor="middle" font-size="11" fill="#5c6a79">ids</text>
+  <text x="30" y="178" font-size="11" fill="#b4471d">Database can read molecular content.</text>
+  <text x="30" y="196" font-size="11" fill="#b4471d">Disk encryption protects storage media.</text>
+  <line x1="460" y1="20" x2="460" y2="200" stroke="#1b2430" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="490" y="32" font-weight="600" fill="#1b2430">molseal: search inside the application</text>
+  <rect x="490" y="50" width="200" height="90" rx="6" fill="#e2f2eb" stroke="#1e7a5a" stroke-width="1.2"/>
+  <text x="590" y="74" text-anchor="middle" fill="#1b2430">App + molseal</text>
+  <text x="590" y="94" text-anchor="middle" font-size="11" fill="#5c6a79">plaintext index in memory</text>
+  <text x="590" y="120" text-anchor="middle" fill="#2456a4">search runs here</text>
+  <rect x="750" y="70" width="130" height="48" rx="6" fill="#f8e8df" stroke="#b4471d" stroke-width="1.2"/><text x="815" y="90" text-anchor="middle" fill="#1b2430">Database</text><text x="815" y="106" text-anchor="middle" font-size="11" fill="#5c6a79">ciphertext</text>
+  <line x1="690" y1="86" x2="748" y2="86" stroke="#1b2430" stroke-width="1.2" marker-end="url(#b)"/><text x="719" y="78" text-anchor="middle" font-size="11" fill="#5c6a79">write</text>
+  <line x1="748" y1="106" x2="692" y2="106" stroke="#1b2430" stroke-width="1.2" marker-end="url(#b)"/><text x="719" y="122" text-anchor="middle" font-size="11" fill="#5c6a79">read</text>
+  <text x="490" y="178" font-size="11" fill="#1e7a5a">Database holds ciphertext and metadata.</text>
+  <text x="490" y="196" font-size="11" fill="#1e7a5a">Plaintext chemistry stays in the trusted process.</text>
+</svg>
