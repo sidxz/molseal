@@ -64,6 +64,14 @@ and similarity ids and scores against the cartridge. `topk100` has no parity gat
 fragment query is checked to match the molecule it was cut from, so a zero-hit query is a bug. **A run with failed parity publishes nothing:** no timing is reported or
 copied into any write-up until parity passes.
 
+Gates 5–10 (milestone 3) cover the rest of the search surface on the same loads: feature-Morgan
+Tanimoto at 0.55 and 0.7 against `featmorganbv_fp` (the gate adds an `fmfp` column once); Tversky(1, 0)
+and Dice on Morgan against `tversky_sml` and `dice_sml` with the query as the first argument;
+generalized substructure against `m @>> mol_to_xqmol(...)`; chirality against `rdkit.do_chiral_sss`
+on 20 seeded stereo molecules and their mirror images; molblock queries equal to their SMILES form; and,
+for what the cartridge lacks, chiral Morgan and Cosine against RDKit in Python plus the fingerprint rows
+of 100 sampled ids. `python -m bench.parity` runs all ten; a run with any gate failing publishes nothing.
+
 ## 7. Timing order (one profile up at a time)
 
 1. Cartridge cold: `docker compose -f bench/compose.yml restart cartridge-db`, then
