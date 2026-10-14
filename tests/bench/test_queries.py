@@ -24,6 +24,20 @@ def test_fragments_are_sized_deduplicated_and_free_of_dummies():
         assert 5 <= m.GetNumHeavyAtoms() <= 20
 
 
+def test_fragments_carry_no_radicals_and_match_their_parent():
+    parents = [Chem.MolFromSmiles(s) for s in molecules()]
+    frags = q.fragments_from(molecules(), random.Random(1), n=40)
+    assert frags
+    for f in frags:
+        m = Chem.MolFromSmiles(f)
+        assert not any(a.GetNumRadicalElectrons() for a in m.GetAtoms()), f
+        assert any(p.HasSubstructMatch(m) for p in parents), f
+
+
+def test_strip_dummies_gives_hydrogens_back_instead_of_radicals():
+    assert Chem.MolToSmiles(q.strip_dummies("[8*]C(C=O)CC")) == "CCCC=O"
+
+
 def test_build_queries_is_deterministic(tmp_path):
     slice_path = tmp_path / "slice_438.tsv"
     slice_path.write_text("".join(f"CHEMBL{i}\t{s}\tK{i}\n" for i, s in enumerate(molecules())))

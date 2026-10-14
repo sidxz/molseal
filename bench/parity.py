@@ -59,6 +59,34 @@ def _cart_similar(conn, query: str, threshold: float) -> dict[uuid.UUID, float]:
     return {r.id: float(r.s) for r in rows}
 
 
+def check_substructure(qid: str, ms_hits: list, ms_count: int, cart_count: int, rejected: set,
+                       cart_ids=None, id_set_limit: int = 10_000) -> tuple[dict, dict]:
+    """Gates 2 and 3 for one query. molseal also indexes the rows the cartridge rejected, so those are
+    taken out of its hit list and its count. Gate 2: count_substructure, the hit-list length (a list,
+    so a duplicate shows) and the cartridge count agree. Gate 3: the id sets agree; skipped, and said
+    so, above `id_set_limit` hits. `cart_ids` is called only when gate 3 runs."""
+    kept = [i for i in ms_hits if i not in rejected]
+    count = ms_count - (len(ms_hits) - len(kept))
+    g2 = {"id": qid, "molseal": len(kept), "molseal_count": count, "cartridge": cart_count,
+          "ok": len(kept) == count == cart_count}
+    if cart_count > id_set_limit:
+        return g2, {"id": qid, "skipped": f"count > {id_set_limit}", "ok": True}
+    cmp = compare_sets(set(kept), cart_ids())
+    return g2, {"id": qid, **cmp, "ok": cmp["equal"] and len(set(kept)) == len(kept)}
+
+
+def check_similarity(qid: str, ms_pairs: list, cart_scores: dict, src, rejected: set) -> dict:
+    """Gate 4 for one query: ids and scores, leaving out the source molecule and rejected rows."""
+    ms = {i: s for i, s in ms_pairs if i != src and i not in rejected}
+    cs = {i: s for i, s in cart_scores.items() if i != src}
+    cmp = compare_scores(ms, cs)
+    return {"id": qid, **cmp, "molseal": len(ms), "cartridge": len(cs), "ok": cmp["equal"]}
+
+
+def overall_ok(out: dict) -> bool:
+    return out["gate1"]["ok"] and all(r["ok"] for g in ("gate2", "gate3", "gate4") for r in out[g])
+
+
 def run(vault: Vault, cart_engine: sa.Engine, queries: dict, rejected: set[uuid.UUID], sample_ids: list[uuid.UUID],
         threshold: float = 0.7, id_set_limit: int = 10_000) -> dict:
     out: dict = {"gate1": {}, "gate2": [], "gate3": [], "gate4": []}
@@ -76,22 +104,18 @@ def run(vault: Vault, cart_engine: sa.Engine, queries: dict, rejected: set[uuid.
         out["gate1"] = {"sampled": len(sample_ids), "mismatches": mism, "ok": mism == 0}
         # Gates 2 and 3: substructure
         for sq in queries["substructure"]:
-            ms = set(vault.substructure(sq["query"], kind=sq["kind"])) - rejected
-            cc = _cart_count(conn, sq["kind"], sq["query"])
-            rec = {"id": sq["id"], "molseal": len(ms), "cartridge": cc, "ok": len(ms) == cc}
-            out["gate2"].append(rec)
-            if cc <= id_set_limit:
-                cmp = compare_sets(ms, _cart_ids(conn, sq["kind"], sq["query"]))
-                out["gate3"].append({"id": sq["id"], **cmp, "ok": cmp["equal"]})
+            q, k = sq["query"], sq["kind"]
+            g2, g3 = check_substructure(sq["id"], vault.substructure(q, kind=k), vault.count_substructure(q, kind=k),
+                                        _cart_count(conn, k, q), rejected, lambda: _cart_ids(conn, k, q), id_set_limit)
+            out["gate2"].append(g2)
+            out["gate3"].append(g3)
         # Gate 4: similarity
         for sq in queries["similarity"]:
-            src = uuid.UUID(sq["source_id"])
-            ms = {i: s for i, s in vault.similar(sq["query"], threshold=threshold) if i != src and i not in rejected}
-            cs = {i: s for i, s in _cart_similar(conn, sq["query"], threshold).items() if i != src}
-            cmp = compare_scores(ms, cs)
-            out["gate4"].append({"id": sq["id"], **cmp, "molseal": len(ms), "cartridge": len(cs), "ok": cmp["equal"]})
-    out["ok"] = (out["gate1"]["ok"] and all(r["ok"] for r in out["gate2"]) and all(r["ok"] for r in out["gate3"])
-                 and all(r["ok"] for r in out["gate4"]))
+            out["gate4"].append(check_similarity(sq["id"], vault.similar(sq["query"], threshold=threshold),
+                                                 _cart_similar(conn, sq["query"], threshold), uuid.UUID(sq["source_id"]),
+                                                 rejected))
+    out["zero_hit_queries"] = [r["id"] for r in out["gate2"] if r["cartridge"] == 0]
+    out["ok"] = overall_ok(out)
     return out
 
 
