@@ -245,3 +245,93 @@ def test_put_many_retries_a_conflict_with_fresh_nonces_and_indexes_once(vault, m
     assert vault.put_many([(ids[0], "CCO", None), (ids[1], "CCN", None)]) == 2
     assert len(attempts) == 2 and not set(attempts[0]) & set(attempts[1])     # re-sealed, not resent
     assert indexed == [2] and set(vault.substructure("C")) == set(ids)
+
+
+# append to tests/test_vault.py
+import numpy as np
+from molseal import metrics, snapshot
+from molseal.engine import FEATMORGAN2, MORGAN2, MORGAN2_CHIRAL
+
+
+def test_get_many_decrypts_live_rows_and_skips_deleted_and_unknown(env):
+    store, kp, snap = env
+    t = uuid4()
+    v1 = Vault(store, kp, t, snapshot_dir=snap)
+    a, b, c = uuid4(), uuid4(), uuid4()
+    v1.put_many([(a, "OCC", {"k": "1"}), (b, "CCN", None), (c, "c1ccccc1", None)])
+    Vault(store, kp, t).delete(b)                                   # a second instance deletes b
+    got = v1.get_many([a, b, c, uuid4()])
+    assert set(got) == {a, c} and got[a].smiles == "CCO" and got[a].keys == {"k": "1"}
+    assert v1.get_many([]) == {}
+
+
+def test_fingerprints_sync_before_reading(env):
+    store, kp, snap = env
+    t = uuid4()
+    v1 = Vault(store, kp, t)
+    a, b = uuid4(), uuid4()
+    v1.put(a, "CCO")
+    Vault(store, kp, t).put(b, "CCN")                                # written elsewhere
+    found, mat = v1.fingerprints([b, a])
+    assert found == [b, a]
+    assert np.array_equal(mat, engine.morgan_matrix([engine.Chem.MolFromSmiles("CCN"), engine.Chem.MolFromSmiles("CCO")]))
+    with pytest.raises(ValueError):
+        v1.fingerprints([a], "nope")
+
+
+def test_families_reach_fresh_rebuilt_and_loaded_indexes(env):
+    store, kp, snap = env
+    t = uuid4()
+    v = Vault(store, kp, t, snapshot_dir=snap, families=(MORGAN2, FEATMORGAN2))
+    a = uuid4()
+    v.put(a, "CCOc1ccccc1")
+    assert [f.name for f in v.index.families] == ["morgan2", "featmorgan2"]
+    assert {i for i, _ in v.similar("CCOc1ccccc1", 0.99, family="featmorgan2", metric=metrics.dice)} == {a}
+    v.rebuild()
+    assert [f.name for f in v.index.families] == ["morgan2", "featmorgan2"]
+    v.save_snapshot()
+    same = Vault(store, kp, t, snapshot_dir=snap, families=(MORGAN2, FEATMORGAN2))
+    assert [f.name for f in same.index.families] == ["morgan2", "featmorgan2"]
+    other = Vault(store, kp, t, snapshot_dir=snap, families=(MORGAN2_CHIRAL,))
+    assert [f.name for f in other.index.families] == ["morgan2-chiral"]
+    assert {i for i, _ in other.similar("CCOc1ccccc1", 0.99, family="morgan2-chiral")} == {a}
+
+
+def test_a_format_one_snapshot_is_rebuilt_and_resaved_as_format_two(env, monkeypatch):
+    store, kp, snap = env
+    t = uuid4()
+    v1 = Vault(store, kp, t, snapshot_dir=snap)
+    a = uuid4()
+    v1.put(a, "CCO")
+    monkeypatch.setattr(snapshot, "FORMAT_VERSION", 1)
+    path = v1.save_snapshot()
+    monkeypatch.undo()
+    v2 = Vault(store, kp, t, snapshot_dir=snap)                      # must not raise
+    assert v2.substructure("CCO") == [a]
+    v2.save_snapshot()
+    assert snapshot.load(path, v2.keys.data_key, t, v2.keys.data_key_version).substructure("CCO") == [a]
+
+
+def test_a_tampered_snapshot_still_refuses_to_open(env):
+    store, kp, snap = env
+    t = uuid4()
+    v1 = Vault(store, kp, t, snapshot_dir=snap)
+    v1.put(uuid4(), "CCO")
+    path = v1.save_snapshot()
+    raw = bytearray(path.read_bytes())
+    raw[-1] ^= 1
+    path.write_bytes(bytes(raw))
+    with pytest.raises(snapshot.SnapshotError):
+        Vault(store, kp, t, snapshot_dir=snap)
+
+
+def test_substructure_options_pass_through(vault):
+    keto, enol, l_ala, d_ala = uuid4(), uuid4(), uuid4(), uuid4()
+    vault.put_many([(keto, "O=c1cccc[nH]1", None), (enol, "Oc1ccccn1", None),
+                    (l_ala, "C[C@H](N)C(=O)O", None), (d_ala, "C[C@@H](N)C(=O)O", None)])
+    assert set(vault.substructure("Oc1ccccn1", generalized=True)) == {keto, enol}
+    assert vault.count_substructure("Oc1ccccn1", generalized=True) == 2
+    assert vault.substructure("C[C@H](N)C(=O)O", use_chirality=True) == [l_ala]
+    assert set(vault.substructure("C[C@H](N)C(=O)O")) == {l_ala, d_ala}
+    block = engine.Chem.MolToMolBlock(engine.Chem.MolFromSmiles("Oc1ccccn1"))
+    assert vault.substructure(block, kind="molblock") == [enol]
