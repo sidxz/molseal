@@ -5,6 +5,8 @@ services:
       POSTGRES_USER: molseal
       POSTGRES_PASSWORD: molseal
       POSTGRES_DB: molseal
+    # bench/run_m2.sh step 2 recreates this with MOLSEAL_LOG_STATEMENT=all for the absence check's log leg
+    command: postgres -c log_statement=${MOLSEAL_LOG_STATEMENT:-none}
     ports:
       - "5439:5432"
     volumes:

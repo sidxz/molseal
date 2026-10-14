@@ -32,11 +32,11 @@ def test_load_writes_sidecar_progress_and_stats(env):
     store, kp, slice_path = env
     t = uuid4()
     stats = lm.load(slice_path, store, kp, t, chunk=10)
-    assert stats["rows"] == 25 and stats["chunks"] == 3 and stats["resumed_from"] == 0
+    assert stats["rows"] == 25 and stats["chunks"] == 3 and stats["resumed_from_row"] == 0
     assert store.tenant_state(t) == (25, 25)
     sidecar = slice_path.with_name(slice_path.name + ".ids.tsv").read_text().splitlines()
     assert len(sidecar) == 25 and sidecar[0].split("\t")[0] == str(lm.row_id("CHEMBL0"))
-    assert json.loads(slice_path.with_name(slice_path.name + ".progress.json").read_text()) == {"done_chunks": 3}
+    assert json.loads(slice_path.with_name(slice_path.name + ".progress.json").read_text()) == {"rows_done": 25, "chunk": 10}
 
 
 def test_resume_after_a_crash_between_commit_and_progress_does_not_duplicate(env):
@@ -44,13 +44,15 @@ def test_resume_after_a_crash_between_commit_and_progress_does_not_duplicate(env
     t = uuid4()
     lm.load(slice_path, store, kp, t, chunk=10)
     progress = slice_path.with_name(slice_path.name + ".progress.json")
-    progress.write_text(json.dumps({"done_chunks": 1}))          # pretend chunks 2 and 3 were never recorded
+    progress.write_text(json.dumps({"rows_done": 10, "chunk": 10}))   # pretend chunks 2 and 3 were never recorded
     stats = lm.load(slice_path, store, kp, t, chunk=10)
-    assert stats["resumed_from"] == 1 and stats["rows"] == 15
+    assert stats["resumed_from_row"] == 10 and stats["rows"] == 15
     assert store.tenant_state(t)[1] == 25                          # live count unchanged
     assert store.get_structure(t, lm.row_id("CHEMBL24")).row_version == 2
     assert store.get_structure(t, lm.row_id("CHEMBL0")).row_version == 1
-    assert json.loads(progress.read_text()) == {"done_chunks": 3}
+    assert json.loads(progress.read_text()) == {"rows_done": 25, "chunk": 10}
+    sidecar = slice_path.with_name(slice_path.name + ".ids.tsv").read_text().splitlines()
+    assert len(sidecar) == 25 and len(set(sidecar)) == 25          # truncated to the commit, no duplicates
 
 
 def test_fully_loaded_slice_is_a_no_op(env):
@@ -58,4 +60,14 @@ def test_fully_loaded_slice_is_a_no_op(env):
     t = uuid4()
     lm.load(slice_path, store, kp, t, chunk=10)
     stats = lm.load(slice_path, store, kp, t, chunk=10)
-    assert stats["rows"] == 0 and stats["resumed_from"] == 3
+    assert stats["rows"] == 0 and stats["resumed_from_row"] == 25
+
+
+def test_resume_refuses_a_different_chunk_size(env):
+    store, kp, slice_path = env
+    t = uuid4()
+    progress = slice_path.with_name(slice_path.name + ".progress.json")
+    progress.write_text(json.dumps({"rows_done": 10, "chunk": 10}))
+    with pytest.raises(SystemExit, match="chunk 10, not 20"):
+        lm.load(slice_path, store, kp, t, chunk=20)
+    assert store.get_structure(t, lm.row_id("CHEMBL10")) is None   # nothing loaded, nothing skipped

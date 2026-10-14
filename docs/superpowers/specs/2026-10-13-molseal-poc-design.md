@@ -302,7 +302,8 @@ absence check (section 9) must pass on it, including the dump leg; that is miles
 - `cartridge-db`: `informaticsmatters/rdkit-cartridge-debian:Release_2025_03_3` (arm64 manifest
   available; architecture printed in the report). Settings: `shared_buffers=4GB`,
   `maintenance_work_mem=2GB`, `effective_cache_size=8GB`, `work_mem=256MB`,
-  `rdkit.morgan_fp_size=2048`, `rdkit.do_chiral_sss=off`. Named volume, not a bind mount.
+  `rdkit.morgan_fp_size=2048`, `rdkit.do_chiral_sss=off`, `max_parallel_workers_per_gather=0` (one
+  backend on one core, so cartridge rows are honestly threads=1). Named volume, not a bind mount.
 - Docker Desktop VM raised to at least 16 GB (24 GB for the full run). Only one database runs at a
   time (compose profiles).
 - Cartridge schema: `mols(id, m mol, mfp bfp)` with `GiST(m)` and `GiST(mfp)`, plus a

@@ -40,12 +40,20 @@ def load(slice_path: Path, store: StructureStore, key_provider: KeyProvider, ten
     slice_path = Path(slice_path)
     progress_path = progress_path or slice_path.with_name(slice_path.name + ".progress.json")
     sidecar = slice_path.with_name(slice_path.name + ".ids.tsv")
-    done = json.loads(progress_path.read_text())["done_chunks"] if progress_path.exists() else 0
+    done = 0
+    if progress_path.exists():
+        prog = json.loads(progress_path.read_text())
+        if prog.get("chunk") != chunk:
+            raise SystemExit(f"{progress_path} was written with chunk {prog.get('chunk')}, not {chunk}; "
+                             "resume with the same --chunk or delete it and its sidecar to start over")
+        done = prog["rows_done"]
+    if sidecar.exists():          # drop sidecar lines written after the last recorded commit
+        lines = sidecar.read_text().splitlines(keepends=True)
+        if len(lines) != done:
+            sidecar.write_text("".join(lines[:done]))
     vault = Vault(store, key_provider, tenant_id, snapshot_dir=snapshot_dir)
     rows = _rows(slice_path)
-    for _ in range(done):                       # skip chunks already recorded as committed
-        if not list(itertools.islice(rows, chunk)):
-            break
+    next(itertools.islice(rows, done, done), None)       # skip the rows already recorded as committed
     t0 = time.perf_counter()
     loaded = chunks = 0
     with open(sidecar, "a") as side:
@@ -56,16 +64,17 @@ def load(slice_path: Path, store: StructureStore, key_provider: KeyProvider, ten
             vault.put_many([(row_id(c), s, {"inchikey": k}) for c, s, k in group], chunk=len(group))
             for c, s, k in group:
                 side.write(f"{row_id(c)}\t{s}\t{k}\n")
+            side.flush()
             chunks += 1
             loaded += len(group)
-            progress_path.write_text(json.dumps({"done_chunks": done + chunks}))
-            print(f"chunk {done + chunks}: {loaded} rows this run", file=sys.stderr)
+            progress_path.write_text(json.dumps({"rows_done": done + loaded, "chunk": chunk}))
+            print(f"chunk {chunks}: {done + loaded} rows done, {loaded} this run", file=sys.stderr)
     seconds = time.perf_counter() - t0
     if snapshot_dir is not None:
         vault.save_snapshot()
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     rss_div = 1 << 20 if sys.platform == "darwin" else 1024     # bytes on macOS, kilobytes on Linux
-    return {"rows": loaded, "chunks": chunks, "resumed_from": done, "seconds": round(seconds, 2),
+    return {"rows": loaded, "chunks": chunks, "resumed_from_row": done, "seconds": round(seconds, 2),
             "rows_per_second": round(loaded / seconds, 1) if seconds > 0 and loaded else 0.0,
             "max_rss_mb": round(rss / rss_div, 1)}
 
