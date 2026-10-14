@@ -86,9 +86,10 @@ vault = Vault(store, keys, tenant, families=(MORGAN2, FEATMORGAN2))
 | `morgan2-chiral` | 2048 | Morgan radius 2 with chirality | 258 |
 | `featmorgan2` | 2048 | feature-Morgan radius 2 | 258 |
 
-A family registered later (`vault.index.add_family`) is computed from the structures already indexed;
-nothing is read from the database. Each process declares the families it uses. A snapshot carries them
-by name and recomputes a missing one on load.
+Declare every family in `Vault(..., families=)`; that tuple is what every rebuild and every snapshot
+load uses. To add a family to a populated tenant, construct the vault with the new tuple: the first load
+computes the new family from the structures already indexed, with no database read. A snapshot carries
+families by name and recomputes a missing one on load.
 
 ### Similarity
 
