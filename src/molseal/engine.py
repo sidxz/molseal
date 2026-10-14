@@ -47,6 +47,8 @@ class FingerprintSpec:
             raise ValueError(f"bad fingerprint family name {self.name!r}")
         if self.bits <= 0 or self.bits % 64:
             raise ValueError(f"{self.name}: bits must be a positive multiple of 64, got {self.bits}")
+        if self.bits >= 65536:
+            raise ValueError(f"{self.name}: bits must be below 65536 (per-row bit counts are uint16), got {self.bits}")
 
     @property
     def nbytes(self) -> int:
@@ -203,6 +205,8 @@ class StructureIndex:
         """Fill `fam` for positions 0..n-1 from the library's own SMILES."""
         if self._n == 0:
             return
+        # ponytail: serial re-parse ceiling: one MolToSmiles plus one parse per held position; a threaded
+        # supplier when late registration on millions of rows matters
         mols = parse_many([Chem.MolToSmiles(self._lib.GetMol(i)) for i in range(self._n)])
         if any(m is None for m in mols):
             raise StructureError("a held structure no longer parses")
@@ -389,8 +393,7 @@ class StructureIndex:
             e = min(n, s + step)
             inter = np.bitwise_count(fam.fps[s:e].view(np.uint64) & q64).sum(axis=1)
             sims[s:e] = metric(inter, qpop, fam.pop[s:e])
-        sims[~self._live[:n]] = -1.0
-        idx = np.flatnonzero(sims >= threshold)
+        idx = np.flatnonzero(self._live[:n] & (sims >= threshold))
         if top_k is not None and len(idx) > top_k:
             idx = idx[np.argpartition(-sims[idx], top_k - 1)[:top_k]]
         idx = idx[np.argsort(-sims[idx], kind="stable")]

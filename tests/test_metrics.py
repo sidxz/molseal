@@ -6,6 +6,14 @@ from rdkit import DataStructs
 from molseal import metrics
 
 
+def test_tversky_weights_must_be_in_unit_range():
+    for bad in ((-0.5, 0), (0, 1.5)):
+        with pytest.raises(ValueError):
+            metrics.tversky(*bad)
+    metrics.tversky(0, 0)
+    metrics.tversky(1, 1)
+
+
 def _bv(bits: int, rng: np.random.Generator) -> DataStructs.ExplicitBitVect:
     bv = DataStructs.ExplicitBitVect(2048)
     for i in rng.choice(2048, size=bits, replace=False):

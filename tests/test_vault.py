@@ -297,7 +297,7 @@ def test_families_reach_fresh_rebuilt_and_loaded_indexes(env):
     assert {i for i, _ in other.similar("CCOc1ccccc1", 0.99, family="morgan2-chiral")} == {a}
 
 
-def test_a_format_one_snapshot_is_rebuilt_and_resaved_as_format_two(env, monkeypatch):
+def test_a_format_one_snapshot_is_rebuilt_and_resaved_as_format_two(env, monkeypatch, caplog):
     store, kp, snap = env
     t = uuid4()
     v1 = Vault(store, kp, t, snapshot_dir=snap)
@@ -306,7 +306,10 @@ def test_a_format_one_snapshot_is_rebuilt_and_resaved_as_format_two(env, monkeyp
     monkeypatch.setattr(snapshot, "FORMAT_VERSION", 1)
     path = v1.save_snapshot()
     monkeypatch.undo()
-    v2 = Vault(store, kp, t, snapshot_dir=snap)                      # must not raise
+    with caplog.at_level("WARNING", logger="molseal.vault"):
+        v2 = Vault(store, kp, t, snapshot_dir=snap)                  # must not raise
+    warned = [r for r in caplog.records if "ignoring snapshot" in r.getMessage()]
+    assert len(warned) == 1 and str(path) in warned[0].getMessage()
     assert v2.substructure("CCO") == [a]
     v2.save_snapshot()
     assert snapshot.load(path, v2.keys.data_key, t, v2.keys.data_key_version).substructure("CCO") == [a]

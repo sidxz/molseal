@@ -10,6 +10,7 @@ and retry the whole read-seal-write cycle on conflict, so two writers never reus
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterable, Sequence
 from itertools import batched
@@ -26,6 +27,8 @@ from .keys import KeyProvider, TenantKeys, exact_key_hmac, new_tenant_secret, un
 from .payload import Payload, decode, encode
 from .snapshot import SnapshotFormatError
 from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
+
+log = logging.getLogger(__name__)
 
 WRITE_ATTEMPTS = 5
 
@@ -88,7 +91,8 @@ class Vault:
             return None
         try:
             return snapshot.load(p, self.keys.data_key, self.tenant_id, self.keys.data_key_version, self.families)
-        except SnapshotFormatError:
+        except SnapshotFormatError as exc:
+            log.warning("ignoring snapshot %s: %s", p, exc)
             return None          # an older format: rebuild from the store, the next save overwrites it
 
     def save_snapshot(self) -> Path:
