@@ -1,0 +1,10 @@
+{
+ "rows": 499997,
+ "chunks": 50,
+ "resumed_from": 0,
+ "seconds": 123.77,
+ "rows_per_second": 4039.8,
+ "max_rss_mb": 1437.4,
+ "slice": "bench/data/slice_500000.tsv",
+ "tenant": "caf06e34-2033-49a0-a7e3-82f3a2f0d796"
+}
