@@ -11,16 +11,20 @@ and retry the whole read-seal-write cycle on conflict, so two writers never reus
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from itertools import batched
 from pathlib import Path
 from uuid import UUID
 
+import numpy as np
+
 from . import snapshot
 from .crypto import open_sealed, pad, row_aad, seal, unpad
-from .engine import QueryKind, StructureIndex, canonicalize
+from .engine import DEFAULT_FAMILIES, FingerprintSpec, QueryKind, StructureIndex, canonicalize
+from .metrics import Metric, tanimoto
 from .keys import KeyProvider, TenantKeys, exact_key_hmac, new_tenant_secret, unwrap_key, wrap_key
 from .payload import Payload, decode, encode
+from .snapshot import SnapshotFormatError
 from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
 
 WRITE_ATTEMPTS = 5
@@ -36,17 +40,19 @@ class NotFound(VaultError):
 
 class Vault:
     def __init__(self, store: StructureStore, key_provider: KeyProvider, tenant_id: UUID,
-                 snapshot_dir: Path | None = None, num_threads: int = -1, refresh_batch: int = 10000) -> None:
+                 snapshot_dir: Path | None = None, num_threads: int = -1, refresh_batch: int = 10000,
+                 families: Sequence[FingerprintSpec] = DEFAULT_FAMILIES) -> None:
         self.store = store
         self.tenant_id = tenant_id
         self.snapshot_dir = None if snapshot_dir is None else Path(snapshot_dir)
         self.num_threads = num_threads
         self.refresh_batch = refresh_batch
+        self.families = tuple(families)
         self._lock = threading.Lock()   # ponytail: one lock for reads and writes; RW lock when readers contend
         self._kek = key_provider.kek()
         self.tenant = store.ensure_tenant(tenant_id)
         self.keys = self._load_or_create_keys()
-        self.index = self._load_snapshot() or StructureIndex()
+        self.index = self._load_snapshot() or StructureIndex(self.families)
         self.refresh()
 
     # ----- keys -----
@@ -80,7 +86,10 @@ class Vault:
         p = self._snapshot_path()
         if p is None or not p.exists():
             return None
-        return snapshot.load(p, self.keys.data_key, self.tenant_id, self.keys.data_key_version)
+        try:
+            return snapshot.load(p, self.keys.data_key, self.tenant_id, self.keys.data_key_version, self.families)
+        except SnapshotFormatError:
+            return None          # an older format: rebuild from the store, the next save overwrites it
 
     def save_snapshot(self) -> Path:
         p = self._snapshot_path()
@@ -204,20 +213,43 @@ class Vault:
                 out.append(id_)
         return out
 
-    def substructure(self, query: str, kind: QueryKind = "smiles", max_results: int | None = None) -> list[UUID]:
-        with self._lock:
-            self._sync_locked()
-            return self.index.substructure(query, kind, max_results, self.num_threads)
+    def get_many(self, ids: Iterable[UUID]) -> dict[UUID, Payload]:
+        """Decrypted payloads of the live rows among `ids`; deleted and unknown ids are absent."""
+        out: dict[UUID, Payload] = {}
+        for group in batched(ids, 10_000):
+            for id_, rec in self.store.get_structures(self.tenant_id, list(group)).items():
+                p = self._open(rec)
+                if not p.deleted:
+                    out[id_] = p
+        return out
 
-    def count_substructure(self, query: str, kind: QueryKind = "smiles") -> int:
+    def fingerprints(self, ids: Iterable[UUID], family: str = DEFAULT_FAMILIES[0].name) -> tuple[list[UUID], np.ndarray]:
+        """Packed fingerprint rows of `family` for the live ids among `ids`, in the order given, after
+        the same catch-up a search does."""
+        ids = list(ids)
         with self._lock:
             self._sync_locked()
-            return self.index.count_substructure(query, kind, self.num_threads)
+            return self.index.fingerprints(ids, family)
 
-    def similar(self, query_smiles: str, threshold: float = 0.7, top_k: int | None = None) -> list[tuple[UUID, float]]:
+    def substructure(self, query: str, kind: QueryKind = "smiles", max_results: int | None = None, *,
+                     generalized: bool = False, use_chirality: bool = False) -> list[UUID]:
         with self._lock:
             self._sync_locked()
-            return self.index.similar(query_smiles, threshold, top_k)
+            return self.index.substructure(query, kind, max_results, self.num_threads,
+                                           generalized=generalized, use_chirality=use_chirality)
+
+    def count_substructure(self, query: str, kind: QueryKind = "smiles", *,
+                           generalized: bool = False, use_chirality: bool = False) -> int:
+        with self._lock:
+            self._sync_locked()
+            return self.index.count_substructure(query, kind, self.num_threads,
+                                                 generalized=generalized, use_chirality=use_chirality)
+
+    def similar(self, query_smiles: str, threshold: float = 0.7, top_k: int | None = None, *,
+                family: str = DEFAULT_FAMILIES[0].name, metric: Metric = tanimoto) -> list[tuple[UUID, float]]:
+        with self._lock:
+            self._sync_locked()
+            return self.index.similar(query_smiles, threshold, top_k, family=family, metric=metric)
 
     def __len__(self) -> int:
         return len(self.index)
@@ -264,6 +296,6 @@ class Vault:
         return applied
 
     def _rebuild_locked(self, upto: int) -> None:
-        fresh = StructureIndex()          # built aside, then swapped in
+        fresh = StructureIndex(self.families)          # built aside, then swapped in
         self._catch_up(fresh, upto)
         self.index = fresh
