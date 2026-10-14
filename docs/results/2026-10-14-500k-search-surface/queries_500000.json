@@ -1,0 +1,776 @@
+{
+ "seed": 20261013,
+ "slice": "bench/data/slice_500000.tsv",
+ "substructure": [
+  {
+   "id": "frag-000",
+   "kind": "smiles",
+   "query": "CC1CCC1"
+  },
+  {
+   "id": "frag-001",
+   "kind": "smiles",
+   "query": "CCCC=O"
+  },
+  {
+   "id": "frag-002",
+   "kind": "smiles",
+   "query": "c1ncsn1"
+  },
+  {
+   "id": "frag-003",
+   "kind": "smiles",
+   "query": "CC/N=C(/N)S"
+  },
+  {
+   "id": "frag-004",
+   "kind": "smiles",
+   "query": "CCC(=O)NO"
+  },
+  {
+   "id": "frag-005",
+   "kind": "smiles",
+   "query": "Cc1ccon1"
+  },
+  {
+   "id": "frag-006",
+   "kind": "smiles",
+   "query": "Nc1ncns1"
+  },
+  {
+   "id": "frag-007",
+   "kind": "smiles",
+   "query": "OC1CCNC1"
+  },
+  {
+   "id": "frag-008",
+   "kind": "smiles",
+   "query": "C1CCCCCC1"
+  },
+  {
+   "id": "frag-009",
+   "kind": "smiles",
+   "query": "CCC1=NCCN1"
+  },
+  {
+   "id": "frag-010",
+   "kind": "smiles",
+   "query": "Cc1ccccn1"
+  },
+  {
+   "id": "frag-011",
+   "kind": "smiles",
+   "query": "N#CC1CCCC1"
+  },
+  {
+   "id": "frag-012",
+   "kind": "smiles",
+   "query": "O=CCCCC=O"
+  },
+  {
+   "id": "frag-013",
+   "kind": "smiles",
+   "query": "C1CN2CCSC2=N1"
+  },
+  {
+   "id": "frag-014",
+   "kind": "smiles",
+   "query": "CCCCC(=O)NO"
+  },
+  {
+   "id": "frag-015",
+   "kind": "smiles",
+   "query": "CN1CCCNCC1"
+  },
+  {
+   "id": "frag-016",
+   "kind": "smiles",
+   "query": "Cn1cccc1C#N"
+  },
+  {
+   "id": "frag-017",
+   "kind": "smiles",
+   "query": "O=[N+]([O-])c1cccs1"
+  },
+  {
+   "id": "frag-018",
+   "kind": "smiles",
+   "query": "C1C2CC3CC1CC3C2"
+  },
+  {
+   "id": "frag-019",
+   "kind": "smiles",
+   "query": "CCCCC(O)C(=O)O"
+  },
+  {
+   "id": "frag-020",
+   "kind": "smiles",
+   "query": "Cn1cncc1[N+](=O)[O-]"
+  },
+  {
+   "id": "frag-021",
+   "kind": "smiles",
+   "query": "O=C(O)C1=CCCCO1"
+  },
+  {
+   "id": "frag-022",
+   "kind": "smiles",
+   "query": "c1cc2cc[nH]cc-2n1"
+  },
+  {
+   "id": "frag-023",
+   "kind": "smiles",
+   "query": "c1ccc2c(c1)CCN2"
+  },
+  {
+   "id": "frag-024",
+   "kind": "smiles",
+   "query": "CC1OCC(O)C(O)C1O"
+  },
+  {
+   "id": "frag-025",
+   "kind": "smiles",
+   "query": "CCCCCCCC(C)O"
+  },
+  {
+   "id": "frag-026",
+   "kind": "smiles",
+   "query": "NS(=O)(=O)c1ccccc1"
+  },
+  {
+   "id": "frag-027",
+   "kind": "smiles",
+   "query": "O/C(S)=N\\c1ccccc1"
+  },
+  {
+   "id": "frag-028",
+   "kind": "smiles",
+   "query": "c1cnc2c(c1)CCCN2"
+  },
+  {
+   "id": "frag-029",
+   "kind": "smiles",
+   "query": "Cc1ccc2c(n1)CCNC2"
+  },
+  {
+   "id": "frag-030",
+   "kind": "smiles",
+   "query": "Cc1ncc2cccnc2n1"
+  },
+  {
+   "id": "frag-031",
+   "kind": "smiles",
+   "query": "NC1CCOc2ccccc21"
+  },
+  {
+   "id": "frag-032",
+   "kind": "smiles",
+   "query": "O=c1ocnc2ccccc12"
+  },
+  {
+   "id": "frag-033",
+   "kind": "smiles",
+   "query": "CC1=C(C=O)CC(C#N)=C(N)N1"
+  },
+  {
+   "id": "frag-034",
+   "kind": "smiles",
+   "query": "N#Cc1ccc([SH](=O)=O)c(Cl)c1"
+  },
+  {
+   "id": "frag-035",
+   "kind": "smiles",
+   "query": "O=C1CC(c2cnccn2)=NN1"
+  },
+  {
+   "id": "frag-036",
+   "kind": "smiles",
+   "query": "CCCC(C=O)CP(=O)(O)C(C)N"
+  },
+  {
+   "id": "frag-037",
+   "kind": "smiles",
+   "query": "CN1CC2(CCNCC2)OCC1=O"
+  },
+  {
+   "id": "frag-038",
+   "kind": "smiles",
+   "query": "c1ccc2c(c1)OCc1nccn1-2"
+  },
+  {
+   "id": "frag-039",
+   "kind": "smiles",
+   "query": "CCN(c1ccncc1)n1cccc1"
+  },
+  {
+   "id": "frag-040",
+   "kind": "smiles",
+   "query": "O=C1c2c(O)cc(O)cc2OCC1O"
+  },
+  {
+   "id": "frag-041",
+   "kind": "smiles",
+   "query": "c1cnc2c3c(ccc2c1)CCCC3"
+  },
+  {
+   "id": "frag-042",
+   "kind": "smiles",
+   "query": "O=[N+]([O-])c1cc2ccc(O)nc2cc1Cl"
+  },
+  {
+   "id": "frag-043",
+   "kind": "smiles",
+   "query": "CC1=CC(=O)c2[nH]c3ccccc3c2C1=O"
+  },
+  {
+   "id": "frag-044",
+   "kind": "smiles",
+   "query": "O=[SH](=O)c1ccc2c(c1)[nH]c1ccccc12"
+  },
+  {
+   "id": "frag-045",
+   "kind": "smiles",
+   "query": "CN1C(O)=C(C=O)c2ccc(Cl)cc2S1(=O)=O"
+  },
+  {
+   "id": "frag-046",
+   "kind": "smiles",
+   "query": "O=C1Nc2ccc(F)c(F)c2C(C(F)(F)F)O1"
+  },
+  {
+   "id": "frag-047",
+   "kind": "smiles",
+   "query": "CC1(O)CCCC2(C)Cc3c(O)ccc(O)c3CC12"
+  },
+  {
+   "id": "frag-048",
+   "kind": "smiles",
+   "query": "C=C1CCC[C@@H]2[C@H]1C(=O)C[C@@](C)(O)[C@H]1CC[C@H](C)[C@@H]2O1"
+  },
+  {
+   "id": "frag-049",
+   "kind": "smiles",
+   "query": "O=c1[nH][nH]c(=O)c2cc3c4c(cc(Cl)c3cc12)OCO4"
+  },
+  {
+   "id": "fg-amide",
+   "kind": "smarts",
+   "query": "C(=O)N"
+  },
+  {
+   "id": "fg-carboxylic-acid",
+   "kind": "smarts",
+   "query": "C(=O)[OH]"
+  },
+  {
+   "id": "fg-ester",
+   "kind": "smarts",
+   "query": "C(=O)O[#6]"
+  },
+  {
+   "id": "fg-sulfonamide",
+   "kind": "smarts",
+   "query": "S(=O)(=O)N"
+  },
+  {
+   "id": "fg-nitrile",
+   "kind": "smarts",
+   "query": "C#N"
+  },
+  {
+   "id": "fg-nitro",
+   "kind": "smarts",
+   "query": "[N+](=O)[O-]"
+  },
+  {
+   "id": "fg-halogen",
+   "kind": "smarts",
+   "query": "[Cl,Br,I]"
+  },
+  {
+   "id": "fg-trifluoromethyl",
+   "kind": "smarts",
+   "query": "C(F)(F)F"
+  },
+  {
+   "id": "fg-phenol",
+   "kind": "smarts",
+   "query": "c[OH]"
+  },
+  {
+   "id": "fg-aniline",
+   "kind": "smarts",
+   "query": "c[NH2]"
+  },
+  {
+   "id": "fg-pyridine",
+   "kind": "smarts",
+   "query": "n1ccccc1"
+  },
+  {
+   "id": "fg-piperidine",
+   "kind": "smarts",
+   "query": "C1CCNCC1"
+  },
+  {
+   "id": "fg-piperazine",
+   "kind": "smarts",
+   "query": "N1CCNCC1"
+  },
+  {
+   "id": "fg-morpholine",
+   "kind": "smarts",
+   "query": "C1COCCN1"
+  },
+  {
+   "id": "fg-indole",
+   "kind": "smarts",
+   "query": "c1ccc2[nH]ccc2c1"
+  },
+  {
+   "id": "fg-urea",
+   "kind": "smarts",
+   "query": "NC(=O)N"
+  },
+  {
+   "id": "fg-ring-atom",
+   "kind": "smarts",
+   "query": "[R]"
+  },
+  {
+   "id": "fg-five-ring",
+   "kind": "smarts",
+   "query": "[r5]"
+  },
+  {
+   "id": "fg-ring-junction",
+   "kind": "smarts",
+   "query": "[x3]"
+  },
+  {
+   "id": "fg-ring-bond-CN",
+   "kind": "smarts",
+   "query": "[#6]@[#7]"
+  },
+  {
+   "id": "fg-non-amide-N",
+   "kind": "smarts",
+   "query": "[#7;!$(N-C=O)]"
+  },
+  {
+   "id": "fg-alcohol",
+   "kind": "smarts",
+   "query": "[CX4][OX2H]"
+  }
+ ],
+ "similarity": [
+  {
+   "id": "sim-000",
+   "query": "CCOC(=O)/C=C/[C@H](CCC(=O)NC(c1ccccc1)(c1ccccc1)c1ccccc1)NC(=O)[C@H](Cc1ccccc1)NC(=O)[C@H](CC(C)C)NC(=O)OCc1ccccc1",
+   "source_id": "3b9ec695-2f5f-531c-9230-8b185ee58e28"
+  },
+  {
+   "id": "sim-001",
+   "query": "CN(C)C(=O)c1coc(C(=O)CCCCCCc2ccccc2)n1",
+   "source_id": "a1d43ec3-cd36-55c6-a1bd-3226b78e94a9"
+  },
+  {
+   "id": "sim-002",
+   "query": "C=CC[C@H]1COC(CC)(CC(=O)O)c2[nH]c3c(CC)cccc3c21",
+   "source_id": "b22c43ea-dbf6-5a3e-ba65-2fd22251bb3f"
+  },
+  {
+   "id": "sim-003",
+   "query": "COc1ccc(-c2oc3ccccc3c2C(=O)c2ccc(NCC3CC3)cc2)cc1",
+   "source_id": "0e53ab59-d1cd-5821-9811-740f2f623251"
+  },
+  {
+   "id": "sim-004",
+   "query": "CCCN(CC1CCCC1)C(=O)c1cc(Cl)cc(OCCCON=C(N)N)c1",
+   "source_id": "42465f39-5b42-5df7-8e8b-dfb202d8b5b8"
+  },
+  {
+   "id": "sim-005",
+   "query": "CCN(CC)CC(C)(C)C/N=C1\\CC(c2ccc(C(F)(F)F)cc2)Cc2nc3ccc(Cl)cc3c(O)c21",
+   "source_id": "87a61514-5758-5fa3-af9e-a303f4a3687a"
+  },
+  {
+   "id": "sim-006",
+   "query": "COc1cc(N)c(Cl)cc1C(=O)NC1CCN2CC(C)(c3ccccc3)CC2C1",
+   "source_id": "c6e0adfd-009e-5249-9fc8-a89aebd14585"
+  },
+  {
+   "id": "sim-007",
+   "query": "O=C(CCc1ccncc1)Nc1ccc2[nH]c3ccccc3c2c1",
+   "source_id": "cb3a7b4e-0ce2-5136-9b4e-bae39c5a8ed0"
+  },
+  {
+   "id": "sim-008",
+   "query": "CN(C)[C@]1(c2ccccc2)CC[C@@H](NCCc2c[nH]c3ccccc23)CC1.Cl.Cl",
+   "source_id": "4412e7fc-52cd-5c64-b123-4f447d08929e"
+  },
+  {
+   "id": "sim-009",
+   "query": "Cc1cc(OCc2ccc(F)cc2)cc(N2C(=O)c3ccccc3C2=O)c1",
+   "source_id": "423c0a9f-ab47-5fa7-85b9-df59e6ee7ddc"
+  },
+  {
+   "id": "sim-010",
+   "query": "NS(=O)(=O)c1ccc(S(=O)(=O)Nc2cccc3c(Cl)c[nH]c23)cc1",
+   "source_id": "118a54e0-a68e-570e-ae71-221991b5d602"
+  },
+  {
+   "id": "sim-011",
+   "query": "CS(=O)(=O)c1ccc(-c2c(-c3ccccc3)cc(-c3ccc(C(F)(F)F)cc3)oc2=O)cc1",
+   "source_id": "2f4744ac-01b6-598e-9173-9d374a8ecdd3"
+  },
+  {
+   "id": "sim-012",
+   "query": "Cc1ccc(Nc2n[nH]c(NS(=O)(=O)c3cc(C)c(Cl)cc3S)n2)cc1",
+   "source_id": "fb8d408f-c200-529e-8096-2a18de4c8d3e"
+  },
+  {
+   "id": "sim-013",
+   "query": "NCCCC[C@@H](NC(=O)[C@H](CCCC[C@H](NC(=O)[C@H](CC(=O)O)NC(=O)[C@H](CCC(=O)O)NC(=O)[C@@H]1CCC(=O)N1)C(=O)N[C@H](CCCCN)C(=O)O)NC(=O)[C@H](CC(=O)O)NC(=O)[C@H](CCC(=O)O)NC(=O)[C@@H]1CCC(=O)N1)C(=O)O",
+   "source_id": "b7737024-e370-5169-a605-95db36f9bf1e"
+  },
+  {
+   "id": "sim-014",
+   "query": "CC(N)P(=O)(O)CC(CCc1ccccc1)C(=O)O",
+   "source_id": "b5826024-89a2-5385-9c65-bc0c6dd940ec"
+  },
+  {
+   "id": "sim-015",
+   "query": "CCCOC(=O)OC1=C(C)[C@@H]2C[C@H]3OC(=O)[C@H](OC(=O)OCCC)[C@H]4[C@]5(C(=O)OC)OC[C@]34[C@H]([C@@H](O)[C@@H]5O)[C@@]2(C)CC1=O",
+   "source_id": "2206e767-9c91-5290-98a3-5170ab013668"
+  },
+  {
+   "id": "sim-016",
+   "query": "O=C1CCCCC/C1=C\\c1ccc(Cl)cc1",
+   "source_id": "70677788-b082-5860-b947-8bf8e5aebc66"
+  },
+  {
+   "id": "sim-017",
+   "query": "COC(=O)[C@H](Cc1ccccc1)NC(=O)COCC1=C[C@@H](C(C)(C)C)N(S(=O)(=O)c2ccccc2C)[C@H]1c1ccc(Cl)cc1",
+   "source_id": "773492e1-15e8-5660-8dc6-24b4874b8ae1"
+  },
+  {
+   "id": "sim-018",
+   "query": "CN1CCc2cc(Cl)c3nc(S)sc3c2[C@H]2c3ccccc3CC[C@@H]21",
+   "source_id": "37d254c5-2008-50c8-9870-29ab375b5fd1"
+  },
+  {
+   "id": "sim-019",
+   "query": "Fc1ccc(/C=N/Nc2ncnc3c2cnn3-c2ccccc2)cc1",
+   "source_id": "ac2820d6-a8b2-5279-9f8b-4f8a46ee5705"
+  },
+  {
+   "id": "sim-020",
+   "query": "CCCCC1(CCCC)[C@H](O)[C@H](c2cccc(NC(=O)C[N+](CC)(CC)CC)c2)c2cc(N(C)C)ccc2S(=O)(=O)N1C.[Cl-]",
+   "source_id": "95b4c8a6-0171-5781-87dc-1215a00702e5"
+  },
+  {
+   "id": "sim-021",
+   "query": "COc1ccc2c(c1)[C@@]1(C)Cc3cnc(C)nc3C(C)(C)C1C=C2",
+   "source_id": "3b1edb4a-55b8-549e-aedc-0fcf04e344c8"
+  },
+  {
+   "id": "sim-022",
+   "query": "O=C(NCCc1cccc2ccncc12)c1ccc(OC(F)(F)F)cc1",
+   "source_id": "9b1bb5f0-cdd2-5121-bb8d-711010af8774"
+  },
+  {
+   "id": "sim-023",
+   "query": "NC(CCc1nc2ccccc2n1CP(=O)(O)O)C(=O)O",
+   "source_id": "bc0a20aa-0eba-58bd-a13d-123087d11d17"
+  },
+  {
+   "id": "sim-024",
+   "query": "CO/C(O)=C1\\C(C)=NC(C)=C(C(=O)OCC(C)C)C1c1ccncc1",
+   "source_id": "014f92ac-9cf4-5490-9921-8474700cc3a9"
+  },
+  {
+   "id": "sim-025",
+   "query": "CCN(CC)c1ccc2cc(C(=O)NCCNC(=O)/C=C/c3ccc(OC)cc3)c(=O)oc2c1",
+   "source_id": "e9f12b55-1409-5ee5-8945-91141eac6fa4"
+  },
+  {
+   "id": "sim-026",
+   "query": "Cc1cc(Cl)c2ccc(Cl)cc2c1CCC1C[C@@H](O)CC(=O)O1",
+   "source_id": "c761153c-ff92-5062-9b25-149e9b82942d"
+  },
+  {
+   "id": "sim-027",
+   "query": "CC(=O)NN1CC(C)(C)Sc2ccc(Br)cc21",
+   "source_id": "71df77d3-88d9-507d-befc-dfa89e1e74a3"
+  },
+  {
+   "id": "sim-028",
+   "query": "CCC(C)CC(C)CCCCCCCCC(=O)N[C@@H]1C[C@@H](O)[C@@H](O)NC(=O)[C@@H]2[C@@H](O)CCN2C(=O)[C@H]([C@@H](O)CC(N)=O)NC(=O)[C@H]([C@@H](O)[C@H](O)c2ccc(O)c(N)c2)NC(=O)[C@@H]2C[C@@H](O)CN2C(=O)[C@H]([C@@H](C)O)NC1=O",
+   "source_id": "93421d9c-354d-5288-a8a1-83dafc7fa00e"
+  },
+  {
+   "id": "sim-029",
+   "query": "Nc1ncc(Cc2cccc(OCc3ccccc3)c2)c(N)n1",
+   "source_id": "1db5ef7b-04fc-52aa-a699-9b42457b0ccc"
+  },
+  {
+   "id": "sim-030",
+   "query": "Fc1ccc(Oc2[nH]cnc3ncnc2-3)cc1",
+   "source_id": "f2d98a31-5753-58e2-9e53-5ecd81169720"
+  },
+  {
+   "id": "sim-031",
+   "query": "COc1ccc2nccc(N/N=C/c3ccc(N4CCCC4)cc3)c2c1",
+   "source_id": "06867408-011e-5b41-87c9-983a52951e5f"
+  },
+  {
+   "id": "sim-032",
+   "query": "Cc1ccc(Cn2ccnc2S)s1",
+   "source_id": "deb48f28-d85a-54b3-a79f-a6fabbabb967"
+  },
+  {
+   "id": "sim-033",
+   "query": "c1ccc(C(OCCN2CCC3CCC(C2)N3)c2ccccc2)cc1",
+   "source_id": "a147df3f-2a01-5a1e-8520-b8645a47e204"
+  },
+  {
+   "id": "sim-034",
+   "query": "NCCCNCCCCNC(=O)C(C(=O)NCCCCCCN=C(N)N)c1ccccc1",
+   "source_id": "2e134343-87e2-56a7-a567-2e3f10a378ef"
+  },
+  {
+   "id": "sim-035",
+   "query": "COc1ccc2c3c1CN(C)CC3CCC2",
+   "source_id": "ac5551dc-e9f3-50b1-a8e3-98a8312b97b7"
+  },
+  {
+   "id": "sim-036",
+   "query": "CCCC[C@@H]1NC(=O)[C@H](CCCCN)NC(=O)[C@H](CCCNC(=N)N)NC(=O)[C@H](CC(C)C)NC(=O)[C@@H](NC(=O)[C@H](Cc2cccc(Cl)c2)NC(=O)[C@@H]2CCCN2C(=O)[C@@H](NC(C)=O)C(C)C)CCSSC[C@@H](C(=O)N[C@@H](CCCCN)C(=O)N2CCC[C@H]2C(=O)N2CCC[C@H]2C(=O)N[C@@H](CCC(=O)O)C(N)=O)NC(=O)[C@H](Cc2ccccc2)NC(=O)[C@H](CO)NC(=O)[C@H](C)NC(=O)[C@@H]2CCCN2C1=O",
+   "source_id": "926e2a0a-e03f-5b30-9bb9-5c6b43373cbb"
+  },
+  {
+   "id": "sim-037",
+   "query": "C=C1c2cccc3cccc(c23)C1(Cc1cccnc1)Cc1cccnc1",
+   "source_id": "c8031d76-67b7-5a1d-8584-a176c9501df2"
+  },
+  {
+   "id": "sim-038",
+   "query": "O=C(NC[C@H]1CC[C@H](CNS(=O)(=O)c2cccc3ccccc23)CC1)C1CCc2ccccc2C1",
+   "source_id": "97a6d98d-4735-5ad6-bca4-f363e5485c6b"
+  },
+  {
+   "id": "sim-039",
+   "query": "CCCCCCCCOP(=O)(O)OCCSC(=S)N1CCN(C)CC1",
+   "source_id": "0da71447-734a-52b6-a35a-38e4902cce4d"
+  },
+  {
+   "id": "sim-040",
+   "query": "COc1ccc(C(=O)Nc2c(F)cncc2F)c2ccc(C(F)(F)F)nc12",
+   "source_id": "e0855001-a93a-53e9-adf2-e43d8c23f49e"
+  },
+  {
+   "id": "sim-041",
+   "query": "N#Cc1ccc(N[C@@H]2CN[C@H](C(=O)N3[C@@H]4C[C@@H]4C[C@@H]3C#N)C2)cc1Cl",
+   "source_id": "5efadb8b-72ab-5e9a-84b7-3a4a32af99da"
+  },
+  {
+   "id": "sim-042",
+   "query": "CCS(=O)(=O)c1ccc(CN(C2Cc3cc(C#N)ccc3N(Cc3cncn3C)C2)S(=O)(=O)c2ncn(C)c2C)cc1",
+   "source_id": "594be978-7163-5247-adea-e6d34d5cc01d"
+  },
+  {
+   "id": "sim-043",
+   "query": "CC1N=C(S)N(Nc2ccccc2)C1C",
+   "source_id": "1bc31741-c623-5236-bd5d-96aa0c69e103"
+  },
+  {
+   "id": "sim-044",
+   "query": "CC(C)CC(C(=O)NO)C(=O)NC(C)C(=O)NCc1ccccc1",
+   "source_id": "031633d6-9fd7-52ed-8718-b29f7c9046e9"
+  },
+  {
+   "id": "sim-045",
+   "query": "COC(=O)[C@]1(C)CCC[C@]2(C)[C@H]3C[C@@H]4[C@H]5[C@@H]6Cc7cn[nH]c7[C@H]5[C@@]3(CC[C@H]21)CC4(C(C)C)O6",
+   "source_id": "c5e1ea4e-5a87-5abb-a37b-32ed7bb9c5e5"
+  },
+  {
+   "id": "sim-046",
+   "query": "CC(=O)O/N=C1/C(=O)N(Cc2cc(Cl)ccc2Cl)c2ccc(Cl)cc21",
+   "source_id": "3f38326e-7afd-5560-b4d2-ed74c3612182"
+  },
+  {
+   "id": "sim-047",
+   "query": "Cc1c(NC(=O)Cc2cc(O)c(O)c(O)c2)cccc1C(=O)O",
+   "source_id": "04d0ebce-60ab-544f-8482-2afe8e77c86b"
+  },
+  {
+   "id": "sim-048",
+   "query": "NCc1ccc(S(=O)(=O)c2cccc3ccccc23)s1",
+   "source_id": "0597333e-89fa-5455-a15e-7bfcdd85af76"
+  },
+  {
+   "id": "sim-049",
+   "query": "Cn1c([N+](=O)[O-])cnc1-c1nnc(N2CCCCC2)s1",
+   "source_id": "3d2ce435-0d4f-5b15-83e2-93abd982c783"
+  }
+ ],
+ "chiral": [
+  {
+   "id": "chi-000",
+   "query": "C[C@H]1O[C@@H](n2cc(I)c3c(N)ncnc32)[C@H](O)[C@@H]1O"
+  },
+  {
+   "id": "chi-001",
+   "query": "C[C@@H]1O[C@H](n2cc(I)c3c(N)ncnc32)[C@@H](O)[C@H]1O"
+  },
+  {
+   "id": "chi-002",
+   "query": "CCN1CC[C@@H](c2ccccc2)[C@H](C(=O)OC2CCCCC2)C1.O=C(O)C(=O)O"
+  },
+  {
+   "id": "chi-003",
+   "query": "CCN1CC[C@H](c2ccccc2)[C@@H](C(=O)OC2CCCCC2)C1.O=C(O)C(=O)O"
+  },
+  {
+   "id": "chi-004",
+   "query": "CC(C)(C1CC1)[C@@H](O)C(=O)N1CC[C@H]1C(=O)NCc1cc(Cl)ccc1CN"
+  },
+  {
+   "id": "chi-005",
+   "query": "CC(C)(C1CC1)[C@H](O)C(=O)N1CC[C@@H]1C(=O)NCc1cc(Cl)ccc1CN"
+  },
+  {
+   "id": "chi-006",
+   "query": "OC[C@H]1O[C@@H](n2cnc3c(CCN4CCOCC4)ncnc32)C[C@@H]1O"
+  },
+  {
+   "id": "chi-007",
+   "query": "OC[C@@H]1O[C@H](n2cnc3c(CCN4CCOCC4)ncnc32)C[C@H]1O"
+  },
+  {
+   "id": "chi-008",
+   "query": "NNCC[C@H]1CNC[C@H](C(=O)O)C1"
+  },
+  {
+   "id": "chi-009",
+   "query": "NNCC[C@@H]1CNC[C@@H](C(=O)O)C1"
+  },
+  {
+   "id": "chi-010",
+   "query": "C=C1C[C@H](C(=O)NO)N(S(=O)(=O)c2ccc(OCCOC)cc2)C1"
+  },
+  {
+   "id": "chi-011",
+   "query": "C=C1C[C@@H](C(=O)NO)N(S(=O)(=O)c2ccc(OCCOC)cc2)C1"
+  },
+  {
+   "id": "chi-012",
+   "query": "C=C1CC[C@H](O)/C(C)=C\\C[C@H]2C(=C)C(=O)O[C@@H]2[C@@H]1O"
+  },
+  {
+   "id": "chi-013",
+   "query": "C=C1C(=O)O[C@@H]2[C@@H]1C/C=C(/C)[C@H](O)CCC(=C)[C@@H]2O"
+  },
+  {
+   "id": "chi-014",
+   "query": "OCC1OC(n2cnc3c2NC=NC[C@H]3O)CC1O"
+  },
+  {
+   "id": "chi-015",
+   "query": "OCC1OC(n2cnc3c2NC=NC[C@@H]3O)CC1O"
+  },
+  {
+   "id": "chi-016",
+   "query": "C=C1C[C@H](C)OC1=O"
+  },
+  {
+   "id": "chi-017",
+   "query": "C=C1C[C@@H](C)OC1=O"
+  },
+  {
+   "id": "chi-018",
+   "query": "CCCCc1cc(N[C@@H](CC(C)C)C(=O)NCCCOCC)nc(-n2cncn2)n1"
+  },
+  {
+   "id": "chi-019",
+   "query": "CCCCc1cc(N[C@H](CC(C)C)C(=O)NCCCOCC)nc(-n2cncn2)n1"
+  },
+  {
+   "id": "chi-020",
+   "query": "CO[C@]1(C#C[C@](O)(c2ccccc2)C2CCCCCCC2)CN2CCC1CC2"
+  },
+  {
+   "id": "chi-021",
+   "query": "CO[C@@]1(C#C[C@@](O)(c2ccccc2)C2CCCCCCC2)CN2CCC1CC2"
+  },
+  {
+   "id": "chi-022",
+   "query": "NC(N)=NC(=O)NC[C@H]1COP(=O)(O)CO1"
+  },
+  {
+   "id": "chi-023",
+   "query": "NC(N)=NC(=O)NC[C@@H]1COP(=O)(O)CO1"
+  },
+  {
+   "id": "chi-024",
+   "query": "CC(C)[C@@H](NC(=O)[C@@H]1CSC(C)(C)N1C(=O)CCC[C@H](N)C(=O)O)C(=O)O"
+  },
+  {
+   "id": "chi-025",
+   "query": "CC(C)[C@H](NC(=O)[C@H]1CSC(C)(C)N1C(=O)CCC[C@@H](N)C(=O)O)C(=O)O"
+  },
+  {
+   "id": "chi-026",
+   "query": "CC1=C(C(=O)O)N2C(=O)[C@@H](NC=O)[C@H]2[S+]([O-])C1"
+  },
+  {
+   "id": "chi-027",
+   "query": "CC1=C(C(=O)O)N2C(=O)[C@H](NC=O)[C@@H]2[S+]([O-])C1"
+  },
+  {
+   "id": "chi-028",
+   "query": "Cc1ccc(Oc2ccc(NC(=O)CC[C@H](N)C(N)=O)cc2)cc1"
+  },
+  {
+   "id": "chi-029",
+   "query": "Cc1ccc(Oc2ccc(NC(=O)CC[C@@H](N)C(N)=O)cc2)cc1"
+  },
+  {
+   "id": "chi-030",
+   "query": "C=C1CC[C@@H]2O[C@@]2(C)CC[C@@H](C(C)C)/C=C/[C@](C)(O)CC[C@@H]1O"
+  },
+  {
+   "id": "chi-031",
+   "query": "C=C1CC[C@H]2O[C@]2(C)CC[C@H](C(C)C)/C=C/[C@@](C)(O)CC[C@H]1O"
+  },
+  {
+   "id": "chi-032",
+   "query": "O=[N+]([O-])c1ccc(N2CC[C@@H](O)[C@H](N3CCC(c4ccccc4)CC3)C2)cc1"
+  },
+  {
+   "id": "chi-033",
+   "query": "O=[N+]([O-])c1ccc(N2CC[C@H](O)[C@@H](N3CCC(c4ccccc4)CC3)C2)cc1"
+  },
+  {
+   "id": "chi-034",
+   "query": "COCO[C@H](C)C(=O)C(=O)O"
+  },
+  {
+   "id": "chi-035",
+   "query": "COCO[C@@H](C)C(=O)C(=O)O"
+  },
+  {
+   "id": "chi-036",
+   "query": "Cc1ccc(C(=O)N[C@H](C(=O)N[C@H](C=O)CC(C)C)C(C)C)[nH]1"
+  },
+  {
+   "id": "chi-037",
+   "query": "Cc1ccc(C(=O)N[C@@H](C(=O)N[C@@H](C=O)CC(C)C)C(C)C)[nH]1"
+  },
+  {
+   "id": "chi-038",
+   "query": "COC(=O)[C@H]1C[C@@H](Nc2nc(-c3ccncc3)nc3cnccc23)C1"
+  }
+ ]
+}
