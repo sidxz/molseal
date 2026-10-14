@@ -37,7 +37,8 @@ def substructure(molblock: str, *, tautomers: bool = False, stereo: bool = False
 ```
 
 A molblock query keeps a sketcher's drawing intact: explicit hydrogens are dropped and Kekulé rings are
-aromatized on parse. A SMARTS query is taken literally.
+aromatized on parse. A SMARTS query is taken literally. With `tautomers=True`, RDKit drops tetrahedral
+stereo inside tautomeric zones (next to a carbonyl), so `stereo=True` cannot separate such enantiomers.
 
 ## Registration and dedup through exact keys
 

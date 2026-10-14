@@ -88,8 +88,10 @@ vault = Vault(store, keys, tenant, families=(MORGAN2, FEATMORGAN2))
 
 Declare every family in `Vault(..., families=)`; that tuple is what every rebuild and every snapshot
 load uses. To add a family to a populated tenant, construct the vault with the new tuple: the first load
-computes the new family from the structures already indexed, with no database read. A snapshot carries
-families by name and recomputes a missing one on load.
+computes the new family from the structures already indexed. A snapshot carries families by name and
+recomputes a missing one on load; the vault never saves on its own, so that recompute repeats on every
+start until you save a snapshot, and "no database read" holds only when a snapshot exists (without one
+the vault rebuilds from the database as always).
 
 ### Similarity
 
@@ -155,14 +157,19 @@ as confidential as the structures.
    RDKit's trusted SMILES holder never assigns double-bond stereo, so a chirality-on query with a defined
    double bond is searched with chirality off and only its candidate hits are re-parsed and checked with
    chirality; tetrahedral-only queries use the native path. The cost is one full parse per candidate, so
-   a broad E/Z query on a large library pays for every candidate.
+   a broad E/Z query on a large library pays for every candidate. The check runs under the vault's single
+   lock, so a broad E/Z query blocks that vault's other reads and writes while it runs.
+   Under `generalized=True`, RDKit's extended query drops tetrahedral stereo at centres inside tautomeric
+   zones (every stereocentre next to a carbonyl), so `use_chirality` cannot tell them apart:
+   `N[C@@H](C)C(=O)O` returns both alanine enantiomers.
 6. SMARTS is literal: a Kekulé SMARTS does not match aromatic targets. Molblock queries drop explicit
    hydrogens, so a sketcher's hydrogens do not become required atoms.
 7. All families are bit vectors. Count-based fingerprints are not supported.
 
 Memory: 258 bytes per molecule per 2048-bit family on top of the substructure library. Saving a snapshot
 costs more than holding the index: at 500k molecules with three families the process peaked near 4 GB
-resident while writing the 694 MB snapshot, against about 0.9 GB during the rebuild itself. A snapshot of an
+resident, measured at the end of the run after the gates and the snapshot save, against about 0.9 GB
+during the rebuild itself. A snapshot of an
 older format is ignored and the index is rebuilt from the database; the next save writes the current
 format.
 
