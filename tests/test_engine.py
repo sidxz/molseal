@@ -451,10 +451,16 @@ def test_query_with_a_tetrahedral_centre_and_an_e_double_bond():
     assert len(idx.substructure(smiles[0])) == 4
 
 
-def test_max_results_caps_an_ez_chiral_query(index):
-    assert len(index.substructure("C=CC(=O)O", use_chirality=True)) >= 2
-    hits = index.substructure("C/C=C/C", use_chirality=True, max_results=1)
-    assert len(hits) == 1 and set(hits) <= set(index.substructure("C/C=C/C", use_chirality=True))
+def test_max_results_caps_an_ez_chiral_query():
+    idx = engine.StructureIndex()
+    smiles = ["C/C=C/C(=O)O", "C/C=C/C(=O)OC", "C/C=C\\C(=O)O", "C/C=C\\C(=O)OC"]
+    ids = [uuid4() for _ in smiles]
+    idx.add_batch([(i, s, 1) for i, s in zip(ids, smiles)])
+    q = "C/C=C/C(=O)O"
+    uncapped = idx.substructure(q, use_chirality=True)
+    assert set(uncapped) == {ids[0], ids[1]}                               # both E forms, neither Z form
+    hits = idx.substructure(q, use_chirality=True, max_results=1)
+    assert len(hits) == 1 and hits[0] in uncapped
 
 
 def test_generalized_ez_chiral_query_sits_between_plain_chiral_and_chirality_off(index, dataset):
