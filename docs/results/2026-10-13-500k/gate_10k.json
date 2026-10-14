@@ -1,0 +1,14 @@
+{
+ "load": {
+  "rows": 10000,
+  "chunks": 1,
+  "resumed_from": 0,
+  "seconds": 2.91,
+  "rows_per_second": 3442.3,
+  "max_rss_mb": 396.5
+ },
+ "absence_db": 0,
+ "absence_dump": 0,
+ "leak_report": 0,
+ "ok": true
+}

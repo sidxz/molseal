@@ -1,0 +1,1358 @@
+{
+ "gate1": {
+  "sampled": 100,
+  "mismatches": 0,
+  "ok": true
+ },
+ "gate2": [
+  {
+   "id": "frag-000",
+   "molseal": 88984,
+   "cartridge": 88984,
+   "ok": true
+  },
+  {
+   "id": "frag-001",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-002",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-003",
+   "molseal": 13840,
+   "cartridge": 13840,
+   "ok": true
+  },
+  {
+   "id": "frag-004",
+   "molseal": 672,
+   "cartridge": 672,
+   "ok": true
+  },
+  {
+   "id": "frag-005",
+   "molseal": 2208,
+   "cartridge": 2208,
+   "ok": true
+  },
+  {
+   "id": "frag-006",
+   "molseal": 18026,
+   "cartridge": 18026,
+   "ok": true
+  },
+  {
+   "id": "frag-007",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-008",
+   "molseal": 16960,
+   "cartridge": 16960,
+   "ok": true
+  },
+  {
+   "id": "frag-009",
+   "molseal": 5016,
+   "cartridge": 5016,
+   "ok": true
+  },
+  {
+   "id": "frag-010",
+   "molseal": 49354,
+   "cartridge": 49354,
+   "ok": true
+  },
+  {
+   "id": "frag-011",
+   "molseal": 31724,
+   "cartridge": 31724,
+   "ok": true
+  },
+  {
+   "id": "frag-012",
+   "molseal": 17,
+   "cartridge": 17,
+   "ok": true
+  },
+  {
+   "id": "frag-013",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-014",
+   "molseal": 746,
+   "cartridge": 746,
+   "ok": true
+  },
+  {
+   "id": "frag-015",
+   "molseal": 1358,
+   "cartridge": 1358,
+   "ok": true
+  },
+  {
+   "id": "frag-016",
+   "molseal": 12127,
+   "cartridge": 12127,
+   "ok": true
+  },
+  {
+   "id": "frag-017",
+   "molseal": 286,
+   "cartridge": 286,
+   "ok": true
+  },
+  {
+   "id": "frag-018",
+   "molseal": 235,
+   "cartridge": 235,
+   "ok": true
+  },
+  {
+   "id": "frag-019",
+   "molseal": 40,
+   "cartridge": 40,
+   "ok": true
+  },
+  {
+   "id": "frag-020",
+   "molseal": 24298,
+   "cartridge": 24298,
+   "ok": true
+  },
+  {
+   "id": "frag-021",
+   "molseal": 231,
+   "cartridge": 231,
+   "ok": true
+  },
+  {
+   "id": "frag-022",
+   "molseal": 10,
+   "cartridge": 10,
+   "ok": true
+  },
+  {
+   "id": "frag-023",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-024",
+   "molseal": 462,
+   "cartridge": 462,
+   "ok": true
+  },
+  {
+   "id": "frag-025",
+   "molseal": 1102,
+   "cartridge": 1102,
+   "ok": true
+  },
+  {
+   "id": "frag-026",
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "frag-027",
+   "molseal": 967,
+   "cartridge": 967,
+   "ok": true
+  },
+  {
+   "id": "frag-028",
+   "molseal": 2198,
+   "cartridge": 2198,
+   "ok": true
+  },
+  {
+   "id": "frag-029",
+   "molseal": 1476,
+   "cartridge": 1476,
+   "ok": true
+  },
+  {
+   "id": "frag-030",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-031",
+   "molseal": 7583,
+   "cartridge": 7583,
+   "ok": true
+  },
+  {
+   "id": "frag-032",
+   "molseal": 3960,
+   "cartridge": 3960,
+   "ok": true
+  },
+  {
+   "id": "frag-033",
+   "molseal": 3758,
+   "cartridge": 3758,
+   "ok": true
+  },
+  {
+   "id": "frag-034",
+   "molseal": 384,
+   "cartridge": 384,
+   "ok": true
+  },
+  {
+   "id": "frag-035",
+   "molseal": 56,
+   "cartridge": 56,
+   "ok": true
+  },
+  {
+   "id": "frag-036",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-037",
+   "molseal": 47,
+   "cartridge": 47,
+   "ok": true
+  },
+  {
+   "id": "frag-038",
+   "molseal": 54,
+   "cartridge": 54,
+   "ok": true
+  },
+  {
+   "id": "frag-039",
+   "molseal": 31,
+   "cartridge": 31,
+   "ok": true
+  },
+  {
+   "id": "frag-040",
+   "molseal": 170,
+   "cartridge": 170,
+   "ok": true
+  },
+  {
+   "id": "frag-041",
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "frag-042",
+   "molseal": 4,
+   "cartridge": 4,
+   "ok": true
+  },
+  {
+   "id": "frag-043",
+   "molseal": 35,
+   "cartridge": 35,
+   "ok": true
+  },
+  {
+   "id": "frag-044",
+   "molseal": 51,
+   "cartridge": 51,
+   "ok": true
+  },
+  {
+   "id": "frag-045",
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "frag-046",
+   "molseal": 31,
+   "cartridge": 31,
+   "ok": true
+  },
+  {
+   "id": "frag-047",
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "frag-048",
+   "molseal": 2,
+   "cartridge": 2,
+   "ok": true
+  },
+  {
+   "id": "frag-049",
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "fg-amide",
+   "molseal": 228905,
+   "cartridge": 228905,
+   "ok": true
+  },
+  {
+   "id": "fg-carboxylic-acid",
+   "molseal": 72442,
+   "cartridge": 72442,
+   "ok": true
+  },
+  {
+   "id": "fg-ester",
+   "molseal": 75872,
+   "cartridge": 75872,
+   "ok": true
+  },
+  {
+   "id": "fg-sulfonamide",
+   "molseal": 40141,
+   "cartridge": 40141,
+   "ok": true
+  },
+  {
+   "id": "fg-nitrile",
+   "molseal": 21908,
+   "cartridge": 21908,
+   "ok": true
+  },
+  {
+   "id": "fg-nitro",
+   "molseal": 17705,
+   "cartridge": 17705,
+   "ok": true
+  },
+  {
+   "id": "fg-halogen",
+   "molseal": 113191,
+   "cartridge": 113191,
+   "ok": true
+  },
+  {
+   "id": "fg-trifluoromethyl",
+   "molseal": 30443,
+   "cartridge": 30443,
+   "ok": true
+  },
+  {
+   "id": "fg-phenol",
+   "molseal": 63693,
+   "cartridge": 63693,
+   "ok": true
+  },
+  {
+   "id": "fg-aniline",
+   "molseal": 29518,
+   "cartridge": 29518,
+   "ok": true
+  },
+  {
+   "id": "fg-pyridine",
+   "molseal": 90804,
+   "cartridge": 90804,
+   "ok": true
+  },
+  {
+   "id": "fg-piperidine",
+   "molseal": 50299,
+   "cartridge": 50299,
+   "ok": true
+  },
+  {
+   "id": "fg-piperazine",
+   "molseal": 32083,
+   "cartridge": 32083,
+   "ok": true
+  },
+  {
+   "id": "fg-morpholine",
+   "molseal": 10341,
+   "cartridge": 10341,
+   "ok": true
+  },
+  {
+   "id": "fg-indole",
+   "molseal": 21738,
+   "cartridge": 21738,
+   "ok": true
+  },
+  {
+   "id": "fg-urea",
+   "molseal": 25434,
+   "cartridge": 25434,
+   "ok": true
+  },
+  {
+   "id": "fg-ring-atom",
+   "molseal": 491120,
+   "cartridge": 491120,
+   "ok": true
+  },
+  {
+   "id": "fg-five-ring",
+   "molseal": 280688,
+   "cartridge": 280688,
+   "ok": true
+  },
+  {
+   "id": "fg-ring-junction",
+   "molseal": 278710,
+   "cartridge": 278710,
+   "ok": true
+  },
+  {
+   "id": "fg-ring-bond-CN",
+   "molseal": 361969,
+   "cartridge": 361969,
+   "ok": true
+  },
+  {
+   "id": "fg-non-amide-N",
+   "molseal": 401459,
+   "cartridge": 401459,
+   "ok": true
+  },
+  {
+   "id": "fg-alcohol",
+   "molseal": 84126,
+   "cartridge": 84126,
+   "ok": true
+  }
+ ],
+ "gate3": [
+  {
+   "id": "frag-001",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-002",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-004",
+   "equal": true,
+   "size_a": 672,
+   "size_b": 672,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-005",
+   "equal": true,
+   "size_a": 2208,
+   "size_b": 2208,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-007",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-009",
+   "equal": true,
+   "size_a": 5016,
+   "size_b": 5016,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-012",
+   "equal": true,
+   "size_a": 17,
+   "size_b": 17,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-013",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-014",
+   "equal": true,
+   "size_a": 746,
+   "size_b": 746,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-015",
+   "equal": true,
+   "size_a": 1358,
+   "size_b": 1358,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-017",
+   "equal": true,
+   "size_a": 286,
+   "size_b": 286,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-018",
+   "equal": true,
+   "size_a": 235,
+   "size_b": 235,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-019",
+   "equal": true,
+   "size_a": 40,
+   "size_b": 40,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-021",
+   "equal": true,
+   "size_a": 231,
+   "size_b": 231,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-022",
+   "equal": true,
+   "size_a": 10,
+   "size_b": 10,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-023",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-024",
+   "equal": true,
+   "size_a": 462,
+   "size_b": 462,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-025",
+   "equal": true,
+   "size_a": 1102,
+   "size_b": 1102,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-026",
+   "equal": true,
+   "size_a": 1,
+   "size_b": 1,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-027",
+   "equal": true,
+   "size_a": 967,
+   "size_b": 967,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-028",
+   "equal": true,
+   "size_a": 2198,
+   "size_b": 2198,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-029",
+   "equal": true,
+   "size_a": 1476,
+   "size_b": 1476,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-030",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-031",
+   "equal": true,
+   "size_a": 7583,
+   "size_b": 7583,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-032",
+   "equal": true,
+   "size_a": 3960,
+   "size_b": 3960,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-033",
+   "equal": true,
+   "size_a": 3758,
+   "size_b": 3758,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-034",
+   "equal": true,
+   "size_a": 384,
+   "size_b": 384,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-035",
+   "equal": true,
+   "size_a": 56,
+   "size_b": 56,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-036",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-037",
+   "equal": true,
+   "size_a": 47,
+   "size_b": 47,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-038",
+   "equal": true,
+   "size_a": 54,
+   "size_b": 54,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-039",
+   "equal": true,
+   "size_a": 31,
+   "size_b": 31,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-040",
+   "equal": true,
+   "size_a": 170,
+   "size_b": 170,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-041",
+   "equal": true,
+   "size_a": 1,
+   "size_b": 1,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-042",
+   "equal": true,
+   "size_a": 4,
+   "size_b": 4,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-043",
+   "equal": true,
+   "size_a": 35,
+   "size_b": 35,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-044",
+   "equal": true,
+   "size_a": 51,
+   "size_b": 51,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-045",
+   "equal": true,
+   "size_a": 1,
+   "size_b": 1,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-046",
+   "equal": true,
+   "size_a": 31,
+   "size_b": 31,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-047",
+   "equal": true,
+   "size_a": 0,
+   "size_b": 0,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-048",
+   "equal": true,
+   "size_a": 2,
+   "size_b": 2,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-049",
+   "equal": true,
+   "size_a": 1,
+   "size_b": 1,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  }
+ ],
+ "gate4": [
+  {
+   "id": "sim-000",
+   "equal": true,
+   "compared": 20,
+   "max_abs_diff": 0.0,
+   "molseal": 20,
+   "cartridge": 20,
+   "ok": true
+  },
+  {
+   "id": "sim-001",
+   "equal": true,
+   "compared": 6,
+   "max_abs_diff": 0.0,
+   "molseal": 6,
+   "cartridge": 6,
+   "ok": true
+  },
+  {
+   "id": "sim-002",
+   "equal": true,
+   "compared": 6,
+   "max_abs_diff": 0.0,
+   "molseal": 6,
+   "cartridge": 6,
+   "ok": true
+  },
+  {
+   "id": "sim-003",
+   "equal": true,
+   "compared": 3,
+   "max_abs_diff": 0.0,
+   "molseal": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
+   "id": "sim-004",
+   "equal": true,
+   "compared": 4,
+   "max_abs_diff": 0.0,
+   "molseal": 4,
+   "cartridge": 4,
+   "ok": true
+  },
+  {
+   "id": "sim-005",
+   "equal": true,
+   "compared": 5,
+   "max_abs_diff": 0.0,
+   "molseal": 5,
+   "cartridge": 5,
+   "ok": true
+  },
+  {
+   "id": "sim-006",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-007",
+   "equal": true,
+   "compared": 0,
+   "max_abs_diff": 0.0,
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "sim-008",
+   "equal": true,
+   "compared": 2,
+   "max_abs_diff": 0.0,
+   "molseal": 2,
+   "cartridge": 2,
+   "ok": true
+  },
+  {
+   "id": "sim-009",
+   "equal": true,
+   "compared": 3,
+   "max_abs_diff": 0.0,
+   "molseal": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
+   "id": "sim-010",
+   "equal": true,
+   "compared": 13,
+   "max_abs_diff": 0.0,
+   "molseal": 13,
+   "cartridge": 13,
+   "ok": true
+  },
+  {
+   "id": "sim-011",
+   "equal": true,
+   "compared": 16,
+   "max_abs_diff": 0.0,
+   "molseal": 16,
+   "cartridge": 16,
+   "ok": true
+  },
+  {
+   "id": "sim-012",
+   "equal": true,
+   "compared": 4,
+   "max_abs_diff": 0.0,
+   "molseal": 4,
+   "cartridge": 4,
+   "ok": true
+  },
+  {
+   "id": "sim-013",
+   "equal": true,
+   "compared": 9,
+   "max_abs_diff": 0.0,
+   "molseal": 9,
+   "cartridge": 9,
+   "ok": true
+  },
+  {
+   "id": "sim-014",
+   "equal": true,
+   "compared": 3,
+   "max_abs_diff": 0.0,
+   "molseal": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
+   "id": "sim-015",
+   "equal": true,
+   "compared": 9,
+   "max_abs_diff": 0.0,
+   "molseal": 9,
+   "cartridge": 9,
+   "ok": true
+  },
+  {
+   "id": "sim-016",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-017",
+   "equal": true,
+   "compared": 3,
+   "max_abs_diff": 0.0,
+   "molseal": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
+   "id": "sim-018",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-019",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-020",
+   "equal": true,
+   "compared": 3,
+   "max_abs_diff": 0.0,
+   "molseal": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
+   "id": "sim-021",
+   "equal": true,
+   "compared": 0,
+   "max_abs_diff": 0.0,
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "sim-022",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-023",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-024",
+   "equal": true,
+   "compared": 10,
+   "max_abs_diff": 0.0,
+   "molseal": 10,
+   "cartridge": 10,
+   "ok": true
+  },
+  {
+   "id": "sim-025",
+   "equal": true,
+   "compared": 3,
+   "max_abs_diff": 0.0,
+   "molseal": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
+   "id": "sim-026",
+   "equal": true,
+   "compared": 4,
+   "max_abs_diff": 0.0,
+   "molseal": 4,
+   "cartridge": 4,
+   "ok": true
+  },
+  {
+   "id": "sim-027",
+   "equal": true,
+   "compared": 0,
+   "max_abs_diff": 0.0,
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "sim-028",
+   "equal": true,
+   "compared": 21,
+   "max_abs_diff": 0.0,
+   "molseal": 21,
+   "cartridge": 21,
+   "ok": true
+  },
+  {
+   "id": "sim-029",
+   "equal": true,
+   "compared": 7,
+   "max_abs_diff": 0.0,
+   "molseal": 7,
+   "cartridge": 7,
+   "ok": true
+  },
+  {
+   "id": "sim-030",
+   "equal": true,
+   "compared": 0,
+   "max_abs_diff": 0.0,
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "sim-031",
+   "equal": true,
+   "compared": 2,
+   "max_abs_diff": 0.0,
+   "molseal": 2,
+   "cartridge": 2,
+   "ok": true
+  },
+  {
+   "id": "sim-032",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-033",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-034",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-035",
+   "equal": true,
+   "compared": 5,
+   "max_abs_diff": 0.0,
+   "molseal": 5,
+   "cartridge": 5,
+   "ok": true
+  },
+  {
+   "id": "sim-036",
+   "equal": true,
+   "compared": 17,
+   "max_abs_diff": 0.0,
+   "molseal": 17,
+   "cartridge": 17,
+   "ok": true
+  },
+  {
+   "id": "sim-037",
+   "equal": true,
+   "compared": 2,
+   "max_abs_diff": 0.0,
+   "molseal": 2,
+   "cartridge": 2,
+   "ok": true
+  },
+  {
+   "id": "sim-038",
+   "equal": true,
+   "compared": 3,
+   "max_abs_diff": 0.0,
+   "molseal": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
+   "id": "sim-039",
+   "equal": true,
+   "compared": 16,
+   "max_abs_diff": 0.0,
+   "molseal": 16,
+   "cartridge": 16,
+   "ok": true
+  },
+  {
+   "id": "sim-040",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-041",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-042",
+   "equal": true,
+   "compared": 6,
+   "max_abs_diff": 0.0,
+   "molseal": 6,
+   "cartridge": 6,
+   "ok": true
+  },
+  {
+   "id": "sim-043",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-044",
+   "equal": true,
+   "compared": 4,
+   "max_abs_diff": 0.0,
+   "molseal": 4,
+   "cartridge": 4,
+   "ok": true
+  },
+  {
+   "id": "sim-045",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-046",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-047",
+   "equal": true,
+   "compared": 1,
+   "max_abs_diff": 0.0,
+   "molseal": 1,
+   "cartridge": 1,
+   "ok": true
+  },
+  {
+   "id": "sim-048",
+   "equal": true,
+   "compared": 0,
+   "max_abs_diff": 0.0,
+   "molseal": 0,
+   "cartridge": 0,
+   "ok": true
+  },
+  {
+   "id": "sim-049",
+   "equal": true,
+   "compared": 5,
+   "max_abs_diff": 0.0,
+   "molseal": 5,
+   "cartridge": 5,
+   "ok": true
+  }
+ ],
+ "ok": true
+}

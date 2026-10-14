@@ -1,0 +1,11 @@
+{
+ "rows": 499997,
+ "rejected": 2,
+ "insert_seconds": 41.98,
+ "fp_seconds": 15.01,
+ "gist_m_seconds": 60.32,
+ "gist_mfp_seconds": 8.65,
+ "morgan_fp_size": "2048",
+ "do_chiral_sss": "off",
+ "slice": "bench/data/slice_500000.tsv"
+}
