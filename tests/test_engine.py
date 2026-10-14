@@ -237,6 +237,8 @@ def test_family_spec_validation():
         FingerprintSpec("x", 100, lambda: None)
     with pytest.raises(ValueError):
         FingerprintSpec("x", 0, lambda: None)
+    with pytest.raises(ValueError, match="65536"):
+        FingerprintSpec("x", 65536, lambda: None)
     assert MORGAN2.nbytes == 256 and DEFAULT_FAMILIES == (MORGAN2,)
 
 
@@ -403,12 +405,46 @@ def test_molblock_query_with_explicit_hydrogens_and_kekule_ring(index):
 
 
 def test_generalized_with_smarts_or_molblock_answers_or_raises_cleanly(index):
+    answered = 0
     for query, kind in (("[#6]-[#7]-[#6](=O)", "smarts"), (Chem.MolToMolBlock(Chem.MolFromSmiles("NC(=O)C")), "molblock")):
         try:
             hits = index.substructure(query, kind=kind, generalized=True)
         except engine.StructureError:
             continue
         assert set(hits) >= set(index.substructure(query, kind=kind))
+        answered += 1
+    assert answered, "every input raised; the test proved nothing"
+
+
+def test_generalized_drops_tetrahedral_stereo_in_tautomeric_zones():
+    # RDKit's extended query mol loses tetrahedral stereo at centres next to a carbonyl, so use_chirality
+    # cannot tell these enantiomers apart under generalized=True.
+    idx = engine.StructureIndex()
+    l_ala, d_ala, flat = uuid4(), uuid4(), uuid4()
+    idx.add_batch([(l_ala, "N[C@@H](C)C(=O)O", 1), (d_ala, "N[C@H](C)C(=O)O", 1), (flat, "NC(C)C(=O)O", 1)])
+    q = "N[C@@H](C)C(=O)O"
+    assert set(idx.substructure(q, use_chirality=True)) == {l_ala}
+    assert set(idx.substructure(q, generalized=True, use_chirality=True)) >= {l_ala, d_ala}
+
+
+def test_generalized_screen_extends_on_append():
+    idx = engine.StructureIndex()
+    keto, enol, other = uuid4(), uuid4(), uuid4()
+    idx.add_batch([(keto, "O=c1cccc[nH]1", 1), (other, "c1ccccc1", 1)])
+    assert set(idx.substructure("Oc1ccccn1", generalized=True)) == {keto}
+    idx.add_batch([(enol, "Oc1ccccn1", 1)])
+    assert set(idx.substructure("Oc1ccccn1", generalized=True)) == {keto, enol}
+
+
+def test_similar_masks_dead_rows_by_the_live_mask_not_a_sentinel():
+    idx = engine.StructureIndex()
+    a, b = uuid4(), uuid4()
+    idx.add_batch([(a, "CCO", 1), (b, "CCN", 1)])
+    idx.mark_dead(b, 2)
+    assert {i for i, _ in idx.similar("CCN", threshold=-5.0)} == {a}
+    below = lambda c, qa, tb: np.full(len(tb), -1.0)
+    assert idx.similar("CCO", threshold=-2.0, metric=below) == [(a, -1.0)]
+    assert idx.similar("CCO", threshold=-0.5, metric=below) == []
 
 
 def test_capped_search_is_deterministic_on_one_thread(index):

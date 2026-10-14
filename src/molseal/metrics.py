@@ -40,7 +40,10 @@ def cosine(c, a, b) -> np.ndarray:
 
 def tversky(query_weight: float, target_weight: float) -> Metric:
     """`query_weight` (alpha) weights bits only in the query; `target_weight` (beta) weights bits only
-    in the target. tversky(1, 0) = c / a: how much of the query is inside the target."""
+    in the target. tversky(1, 0) = c / a: how much of the query is inside the target. Both weights
+    must lie in [0, 1], as in RDKit."""
+    if not (0 <= query_weight <= 1 and 0 <= target_weight <= 1):
+        raise ValueError(f"tversky weights must be in [0, 1], got {query_weight}, {target_weight}")
     def metric(c, a, b) -> np.ndarray:
         c, b = _f(c), _f(b)
         return _ratio(c, query_weight * (a - c) + target_weight * (b - c) + c)

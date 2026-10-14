@@ -21,7 +21,8 @@ class SnapshotError(Exception):
 
 
 class SnapshotFormatError(SnapshotError):
-    """A molseal snapshot of another format version. Safe to ignore and rebuild; never tampering."""
+    """A snapshot in a format this build does not read. Safe to ignore and rebuild, but the header is not
+    authenticated, so an edited format number raises this too."""
 
 
 def aad_prefix(tenant_id: UUID, key_version: int, last_seq: int) -> bytes:
@@ -32,6 +33,8 @@ def save(index: StructureIndex, path: Path, data_key: bytes, tenant_id: UUID, ke
          chunk_size: int = CHUNK_SIZE) -> None:
     parts = index.to_parts()
     order = ["meta"] + json.loads(parts["meta"])["parts"]
+    # ponytail: the whole blob is built and sealed in memory (parts plus ciphertext, roughly twice the
+    # snapshot size); stream chunk by chunk when snapshots pass a few GB
     blob = b"".join(struct.pack(">Q", len(parts[k])) + parts[k] for k in order)
     chunks = seal_chunks(data_key, blob, aad_prefix(tenant_id, key_version, index.last_seq), chunk_size)
     header = json.dumps({"format": FORMAT_VERSION, "tenant_id": str(tenant_id), "key_version": key_version,
