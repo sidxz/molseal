@@ -223,3 +223,141 @@ def test_canonicalize_rejects_output_that_does_not_re_parse(monkeypatch):
     monkeypatch.setattr(engine.Chem, "MolFromSmiles", lambda s: real(s) if s == "OCC" else None)
     with pytest.raises(engine.StructureError, match="re-parse"):
         engine.canonicalize("OCC")
+
+
+from molseal import metrics
+from molseal.engine import DEFAULT_FAMILIES, FEATMORGAN2, MORGAN2, MORGAN2_CHIRAL, FingerprintSpec
+
+
+def test_family_spec_validation():
+    FingerprintSpec("ok-name_1", 64, lambda: None)
+    with pytest.raises(ValueError):
+        FingerprintSpec("Bad Name", 2048, lambda: None)
+    with pytest.raises(ValueError):
+        FingerprintSpec("x", 100, lambda: None)
+    with pytest.raises(ValueError):
+        FingerprintSpec("x", 0, lambda: None)
+    assert MORGAN2.nbytes == 256 and DEFAULT_FAMILIES == (MORGAN2,)
+
+
+def test_duplicate_unknown_and_last_family_rules():
+    with pytest.raises(ValueError):
+        engine.StructureIndex((MORGAN2, MORGAN2))
+    with pytest.raises(ValueError):
+        engine.StructureIndex(())
+    idx = engine.StructureIndex()
+    with pytest.raises(ValueError, match="unknown fingerprint family"):
+        idx.similar("CCO", family="nope")
+    with pytest.raises(ValueError, match="unknown fingerprint family"):
+        idx.fingerprints([uuid4()], "nope")
+    with pytest.raises(ValueError):
+        idx.drop_family("morgan2")                       # the last one
+    idx.add_family(FEATMORGAN2)
+    assert [f.name for f in idx.families] == ["morgan2", "featmorgan2"]
+    idx.drop_family("morgan2")
+    assert [f.name for f in idx.families] == ["featmorgan2"]
+    with pytest.raises(ValueError):
+        idx.add_family(FingerprintSpec("featmorgan2", 1024, FEATMORGAN2.generator))   # same name, other width
+    idx.add_family(FEATMORGAN2)                           # same name and width: no-op
+
+
+def test_generator_width_mismatch_is_refused():
+    wide = FingerprintSpec("narrow", 128, MORGAN2.generator)   # says 128, makes 2048
+    idx = engine.StructureIndex((MORGAN2, wide))
+    with pytest.raises(ValueError, match="2048-bit"):
+        idx.add_batch([(uuid4(), "CCO", 1)])
+
+
+def test_add_family_later_equals_ingest_bit_for_bit(dataset):
+    ids, smiles, _ = dataset
+    items = [(i, s, 1) for i, s in zip(ids, smiles)]
+    full = engine.StructureIndex((MORGAN2, FEATMORGAN2, MORGAN2_CHIRAL))
+    full.add_batch(items)
+    full.add_batch([(ids[0], "c1ccccc1Cl", 2)])         # an edit: position 0 dies
+    full.mark_dead(ids[1], 2)                            # a delete
+    full.add_batch([(ids[2], "C1CC", 2)])                # an unindexable edit
+    later = engine.StructureIndex((MORGAN2,))
+    later.add_batch(items)
+    later.add_batch([(ids[0], "c1ccccc1Cl", 2)])
+    later.mark_dead(ids[1], 2)
+    later.add_batch([(ids[2], "C1CC", 2)])
+    later.add_family(FEATMORGAN2)
+    later.add_family(MORGAN2_CHIRAL)
+    for fam in ("morgan2", "featmorgan2", "morgan2-chiral"):
+        f1, m1 = full.fingerprints(ids, fam)
+        f2, m2 = later.fingerprints(ids, fam)
+        assert f1 == f2 and ids[1] not in f1 and ids[2] not in f1 and ids[0] in f1
+        assert np.array_equal(m1, m2) and m1.shape == (len(f1), 256)
+    assert later._fams["featmorgan2"].fps.shape[0] == later._cap     # grown to the index capacity
+
+
+def test_fingerprints_follow_the_order_given_and_skip_unknown(index, dataset):
+    ids, smiles, mols = dataset
+    want = [ids[3], uuid4(), ids[1]]
+    found, mat = index.fingerprints(want)
+    assert found == [ids[3], ids[1]]
+    assert np.array_equal(mat, engine.morgan_matrix([mols[3], mols[1]]))
+    found, mat = index.fingerprints([])
+    assert found == [] and mat.shape == (0, 256)
+
+
+def _bulk(gen, fn, query, mols):
+    qfp = gen.GetFingerprint(Chem.MolFromSmiles(query))
+    return fn(qfp, [gen.GetFingerprint(m) for m in mols])
+
+
+@pytest.mark.parametrize("family,metric,bulk", [
+    (FEATMORGAN2, metrics.tanimoto, DataStructs.BulkTanimotoSimilarity),
+    (MORGAN2_CHIRAL, metrics.tanimoto, DataStructs.BulkTanimotoSimilarity),
+    (MORGAN2, metrics.dice, DataStructs.BulkDiceSimilarity),
+    (MORGAN2, metrics.cosine, DataStructs.BulkCosineSimilarity),
+    (MORGAN2, metrics.tversky(1.0, 0.0), lambda q, fps: DataStructs.BulkTverskySimilarity(q, fps, 1.0, 0.0)),
+])
+def test_similar_with_family_and_metric_matches_rdkit(dataset, family, metric, bulk):
+    ids, smiles, mols = dataset
+    idx = engine.StructureIndex((MORGAN2, FEATMORGAN2, MORGAN2_CHIRAL))
+    idx.add_batch([(i, s, 1) for i, s in zip(ids, smiles)])
+    gen = family.generator()
+    for query in ("CCOc1ccccc1", "NC(=O)c1ccccc1", "C[C@H](N)C(=O)O"):
+        expected = {i: s for i, s in zip(ids, _bulk(gen, bulk, query, mols)) if s >= 0.3}
+        got = idx.similar(query, 0.3, family=family.name, metric=metric)
+        assert {i for i, _ in got} == set(expected)
+        assert all(abs(s - expected[i]) < 1e-9 for i, s in got)
+        assert [s for _, s in got] == sorted((s for _, s in got), reverse=True)
+
+
+def test_chiral_family_separates_enantiomers_and_the_default_does_not(dataset):
+    ids, smiles, _ = dataset
+    idx = engine.StructureIndex((MORGAN2, MORGAN2_CHIRAL))
+    idx.add_batch([(i, s, 1) for i, s in zip(ids, smiles)])
+    canon = lambda x: Chem.MolToSmiles(Chem.MolFromSmiles(x))
+    l_ala = {i for i, s in zip(ids, smiles) if s == canon("C[C@H](N)C(=O)O")}
+    d_ala = {i for i, s in zip(ids, smiles) if s == canon("C[C@@H](N)C(=O)O")}
+    assert l_ala and d_ala
+    exact_default = {i for i, s in idx.similar("C[C@H](N)C(=O)O", 0.999)}
+    exact_chiral = {i for i, s in idx.similar("C[C@H](N)C(=O)O", 0.999, family="morgan2-chiral")}
+    assert d_ala <= exact_default and l_ala <= exact_chiral and not (d_ala & exact_chiral)
+
+
+def test_parts_carry_every_family_and_missing_ones_are_recomputed(dataset):
+    ids, smiles, _ = dataset
+    items = [(i, s, 1) for i, s in zip(ids, smiles)]
+    two = engine.StructureIndex((MORGAN2, FEATMORGAN2))
+    two.add_batch(items)
+    two.mark_dead(ids[0], 2)
+    parts = two.to_parts()
+    assert set(parts) == {"meta", "lib", "ids", "live", "rv", "fp:morgan2", "fp:featmorgan2"}
+    same = engine.StructureIndex.from_parts(parts, (MORGAN2, FEATMORGAN2))
+    fewer = engine.StructureIndex.from_parts(parts, (MORGAN2,))
+    more = engine.StructureIndex.from_parts(parts, (FEATMORGAN2, MORGAN2_CHIRAL))
+    assert [f.name for f in fewer.families] == ["morgan2"]
+    assert [f.name for f in more.families] == ["featmorgan2", "morgan2-chiral"]
+    fresh = engine.StructureIndex((MORGAN2, FEATMORGAN2, MORGAN2_CHIRAL))
+    fresh.add_batch(items)
+    fresh.mark_dead(ids[0], 2)
+    for idx, fam in ((same, "featmorgan2"), (more, "featmorgan2"), (more, "morgan2-chiral"), (fewer, "morgan2")):
+        f1, m1 = idx.fingerprints(ids, fam)
+        f2, m2 = fresh.fingerprints(ids, fam)
+        assert f1 == f2 and np.array_equal(m1, m2)
+    assert {i for i, _ in more.similar(smiles[7], 0.999, family="morgan2-chiral")} == {ids[7]}
+    assert len(same) == len(ids) - 1
