@@ -361,3 +361,56 @@ def test_parts_carry_every_family_and_missing_ones_are_recomputed(dataset):
         assert f1 == f2 and np.array_equal(m1, m2)
     assert {i for i, _ in more.similar(smiles[7], 0.999, family="morgan2-chiral")} == {ids[7]}
     assert len(same) == len(ids) - 1
+
+
+def brute_force_chiral(dataset, query):
+    ids, _, mols = dataset
+    q = Chem.MolFromSmiles(query)
+    return {i for i, m in zip(ids, mols) if m.HasSubstructMatch(q, useChirality=True)}
+
+
+def test_generalized_finds_the_tautomer_and_plain_does_not():
+    idx = engine.StructureIndex()
+    keto, enol, other = uuid4(), uuid4(), uuid4()
+    idx.add_batch([(keto, "O=c1cccc[nH]1", 1), (enol, "Oc1ccccn1", 1), (other, "c1ccccc1", 1)])
+    assert set(idx.substructure("Oc1ccccn1")) == {enol}
+    assert set(idx.substructure("Oc1ccccn1", generalized=True)) == {keto, enol}
+    assert idx.count_substructure("Oc1ccccn1", generalized=True) == 2
+    assert idx.count_substructure("Oc1ccccn1") == 1
+    assert idx._lib.GetFpHolder().__class__.__name__ == "TautomerPatternHolder"
+
+
+def test_use_chirality_matches_only_the_same_defined_stereo(index, dataset):
+    ids, smiles, _ = dataset
+    q = "C[C@H](N)C(=O)O"
+    expected_on = brute_force_chiral(dataset, q)
+    assert set(index.substructure(q, use_chirality=True)) == expected_on
+    assert index.count_substructure(q, use_chirality=True) == len(expected_on)
+    assert expected_on < brute_force(dataset, q, "smiles")                 # strict subset: the enantiomer and the flat one drop out
+    flat = "CC(N)C(=O)O"
+    assert set(index.substructure(flat, use_chirality=True)) == brute_force(dataset, flat, "smiles")   # undefined query matches all
+
+
+def test_molblock_query_with_explicit_hydrogens_and_kekule_ring(index):
+    block = Chem.MolToMolBlock(Chem.AddHs(Chem.MolFromSmiles("Oc1ccccc1")), kekulize=True)
+    assert "H " in block and "M  END" in block
+    assert set(index.substructure(block, kind="molblock")) == set(index.substructure("Oc1ccccc1"))
+    assert index.count_substructure(block, kind="molblock") == index.count_substructure("Oc1ccccc1")
+    with pytest.raises(engine.StructureError):
+        index.substructure("not a molblock", kind="molblock")
+    with pytest.raises(engine.StructureError):
+        index.substructure("CCO", kind="inchi")
+
+
+def test_generalized_with_smarts_or_molblock_answers_or_raises_cleanly(index):
+    for query, kind in (("[#6]-[#7]-[#6](=O)", "smarts"), (Chem.MolToMolBlock(Chem.MolFromSmiles("NC(=O)C")), "molblock")):
+        try:
+            hits = index.substructure(query, kind=kind, generalized=True)
+        except engine.StructureError:
+            continue
+        assert set(hits) >= set(index.substructure(query, kind=kind))
+
+
+def test_capped_search_is_deterministic_on_one_thread(index):
+    runs = {tuple(index.substructure("c1ccccc1", max_results=10, num_threads=1)) for _ in range(5)}
+    assert len(runs) == 1 and len(next(iter(runs))) == 10

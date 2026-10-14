@@ -17,13 +17,19 @@ from uuid import UUID
 import numpy as np
 from rdkit import Chem, RDLogger
 from rdkit.Chem import rdFingerprintGenerator
-from rdkit.Chem.rdSubstructLibrary import AddPatterns, CachedTrustedSmilesMolHolder, SubstructLibrary
+from rdkit.Chem.rdGeneralizedSubstruct import CreateExtendedQueryMol
+from rdkit.Chem.rdSubstructLibrary import AddPatterns, CachedTrustedSmilesMolHolder, SubstructLibrary, TautomerPatternHolder
 
 from .metrics import Metric, tanimoto
 
 RDLogger.DisableLog("rdApp.*")
 
-QueryKind = Literal["smiles", "smarts"]
+QueryKind = Literal["smiles", "smarts", "molblock"]
+_PARSERS: dict[str, Callable[[str], Chem.Mol | None]] = {
+    "smiles": Chem.MolFromSmiles,
+    "smarts": Chem.MolFromSmarts,            # taken literally: no aromaticity perception
+    "molblock": Chem.MolFromMolBlock,        # sanitized, explicit hydrogens removed
+}
 _NAME = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 
 
@@ -120,11 +126,22 @@ class _Family:
         self.pop[start : start + len(mat)] = np.bitwise_count(mat).sum(axis=1).astype(np.uint16)
 
 
-def _parse_query(query: str, kind: QueryKind) -> Chem.Mol:
-    q = Chem.MolFromSmarts(query) if kind == "smarts" else Chem.MolFromSmiles(query)
+def _parse_query(query: str, kind: QueryKind, generalized: bool = False):
+    parser = _PARSERS.get(kind)
+    if parser is None:
+        raise StructureError(f"unknown query kind {kind!r}")
+    try:
+        q = parser(query)
+    except (ValueError, RuntimeError):
+        q = None
     if q is None:
         raise StructureError(f"cannot parse {kind} query: {query!r}")
-    return q
+    if not generalized:
+        return q
+    try:   # positional: doEnumeration=True, doTautomers=True, adjustQueryProperties=False (the cartridge's defaults)
+        return CreateExtendedQueryMol(q, True, True, False)
+    except (ValueError, RuntimeError) as exc:
+        raise StructureError(f"cannot build a generalized query from {kind} {query!r}: {exc}") from exc
 
 
 class StructureIndex:
@@ -274,20 +291,22 @@ class StructureIndex:
         return len(keep)
 
     def _ensure_patterns(self, num_threads: int) -> None:
+        # The tautomer holder screens plain and generalized queries alike; the plain holder would
+        # skip the screen for generalized queries and scan every molecule.
         if not self._patterns and self._n > 0:
-            AddPatterns(self._lib, numThreads=num_threads)
+            AddPatterns(self._lib, TautomerPatternHolder(), numThreads=num_threads)
             self._patterns = True
 
     # ----- substructure -----
 
     def substructure(self, query: str, kind: QueryKind = "smiles", max_results: int | None = None,
-                     num_threads: int = -1) -> list[UUID]:
+                     num_threads: int = -1, *, generalized: bool = False, use_chirality: bool = False) -> list[UUID]:
         if len(self) == 0:
             return []
-        q = _parse_query(query, kind)
+        q = _parse_query(query, kind, generalized)
         self._ensure_patterns(num_threads)
         self._ensure_order()
-        hits = self._lib.GetMatches(q, recursionPossible=True, useChirality=False, useQueryQueryMatches=False,
+        hits = self._lib.GetMatches(q, recursionPossible=True, useChirality=use_chirality, useQueryQueryMatches=False,
                                     numThreads=num_threads, maxResults=-1 if max_results is None else int(max_results))
         out: dict[UUID, None] = {}
         for pos in hits:
@@ -296,13 +315,14 @@ class StructureIndex:
                 out[id_] = None
         return list(out)
 
-    def count_substructure(self, query: str, kind: QueryKind = "smiles", num_threads: int = -1) -> int:
+    def count_substructure(self, query: str, kind: QueryKind = "smiles", num_threads: int = -1, *,
+                           generalized: bool = False, use_chirality: bool = False) -> int:
         if len(self) == 0:
             return 0
-        q = _parse_query(query, kind)
+        q = _parse_query(query, kind, generalized)
         self._ensure_patterns(num_threads)
         self._ensure_order()
-        return int(self._lib.CountMatches(q, recursionPossible=True, useChirality=False,
+        return int(self._lib.CountMatches(q, recursionPossible=True, useChirality=use_chirality,
                                           useQueryQueryMatches=False, numThreads=num_threads))
 
     # ----- deletes -----
