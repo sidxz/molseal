@@ -6,18 +6,22 @@ import json
 import os
 import struct
 from pathlib import Path
+from collections.abc import Sequence
 from uuid import UUID
 
 from .crypto import CHUNK_SIZE, NONCE_LEN, SealError, open_chunks, seal_chunks
-from .engine import StructureIndex
+from .engine import DEFAULT_FAMILIES, FingerprintSpec, StructureIndex
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 MAGIC = b"MOLSEAL1"
-PART_ORDER = ("meta", "lib", "ids", "live", "rv", "fps")
 
 
 class SnapshotError(Exception):
     pass
+
+
+class SnapshotFormatError(SnapshotError):
+    """A molseal snapshot of another format version. Safe to ignore and rebuild; never tampering."""
 
 
 def aad_prefix(tenant_id: UUID, key_version: int, last_seq: int) -> bytes:
@@ -27,7 +31,8 @@ def aad_prefix(tenant_id: UUID, key_version: int, last_seq: int) -> bytes:
 def save(index: StructureIndex, path: Path, data_key: bytes, tenant_id: UUID, key_version: int,
          chunk_size: int = CHUNK_SIZE) -> None:
     parts = index.to_parts()
-    blob = b"".join(struct.pack(">Q", len(parts[k])) + parts[k] for k in PART_ORDER)
+    order = ["meta"] + json.loads(parts["meta"])["parts"]
+    blob = b"".join(struct.pack(">Q", len(parts[k])) + parts[k] for k in order)
     chunks = seal_chunks(data_key, blob, aad_prefix(tenant_id, key_version, index.last_seq), chunk_size)
     header = json.dumps({"format": FORMAT_VERSION, "tenant_id": str(tenant_id), "key_version": key_version,
                          "last_seq": index.last_seq, "chunk_count": len(chunks)}, sort_keys=True).encode("ascii")
@@ -44,7 +49,8 @@ def save(index: StructureIndex, path: Path, data_key: bytes, tenant_id: UUID, ke
     os.replace(tmp, path)
 
 
-def load(path: Path, data_key: bytes, tenant_id: UUID, key_version: int) -> StructureIndex:
+def load(path: Path, data_key: bytes, tenant_id: UUID, key_version: int,
+         families: Sequence[FingerprintSpec] = DEFAULT_FAMILIES) -> StructureIndex:
     # ponytail: whole file in memory; stream chunk by chunk when snapshots pass a few GB
     data = Path(path).read_bytes()
     if data[:8] != MAGIC or len(data) < 12:
@@ -55,7 +61,7 @@ def load(path: Path, data_key: bytes, tenant_id: UUID, key_version: int) -> Stru
     except ValueError as exc:
         raise SnapshotError("bad snapshot header") from exc
     if header.get("format") != FORMAT_VERSION:
-        raise SnapshotError("unknown snapshot format")
+        raise SnapshotFormatError(f"snapshot format {header.get('format')!r}; this build reads {FORMAT_VERSION}")
     if header.get("tenant_id") != str(tenant_id) or header.get("key_version") != key_version:
         raise SnapshotError("snapshot belongs to another tenant or key version")
     off = 12 + hlen
@@ -78,11 +84,18 @@ def load(path: Path, data_key: bytes, tenant_id: UUID, key_version: int) -> Stru
         raise SnapshotError("snapshot did not open: wrong key, edited header, or tampered chunk") from exc
     parts: dict[str, bytes] = {}
     off = 0
-    for k in PART_ORDER:
+
+    def take() -> bytes:
+        nonlocal off
         (plen,) = struct.unpack(">Q", blob[off : off + 8])
         off += 8
-        parts[k] = blob[off : off + plen]
+        part = blob[off : off + plen]
         off += plen
-    index = StructureIndex.from_parts(parts)
+        return part
+
+    parts["meta"] = take()
+    for k in json.loads(parts["meta"])["parts"]:
+        parts[k] = take()
+    index = StructureIndex.from_parts(parts, families)
     index.last_seq = int(header["last_seq"])
     return index
