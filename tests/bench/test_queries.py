@@ -67,9 +67,10 @@ def test_chiral_queries_have_assigned_centres_and_mirror_images():
 def test_chiral_queries_are_drawn_after_the_rest_so_old_sections_do_not_move(tmp_path, monkeypatch):
     slice_path = tmp_path / "slice_438.tsv"
     slice_path.write_text("".join(f"CHEMBL{i}\t{s}\tK{i}\n" for i, s in enumerate(molecules())))
-    with_chiral = q.build_queries(slice_path, seed=7, n_frag=10, n_sim=5, sample=100)
+    n = len(molecules())                       # sample every row, so the stereocentred molecules are always drawn
+    with_chiral = q.build_queries(slice_path, seed=7, n_frag=10, n_sim=5, sample=n)
     monkeypatch.setattr(q, "chiral_queries", lambda *a, **k: [])
-    without = q.build_queries(slice_path, seed=7, n_frag=10, n_sim=5, sample=100)
+    without = q.build_queries(slice_path, seed=7, n_frag=10, n_sim=5, sample=n)
     assert with_chiral["substructure"] == without["substructure"]
     assert with_chiral["similarity"] == without["similarity"]
     assert with_chiral["chiral"] and without["chiral"] == []
