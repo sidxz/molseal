@@ -206,6 +206,8 @@ class SqlStore:
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate ids in batch")
         tenant_id = batch[0][0].tenant_id
+        if any(rec.tenant_id != tenant_id for rec, _, _ in batch):
+            raise ValueError("a batch holds one tenant's rows")
         n = len(batch)
         with self.engine.begin() as conn:
             end = conn.execute(

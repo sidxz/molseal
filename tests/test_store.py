@@ -184,3 +184,12 @@ def test_put_structures_empty_batch_is_a_no_op(store):
     store.ensure_tenant(t)
     assert store.put_structures([]) == []
     assert store.tenant_state(t) == (0, 0)
+
+
+def test_put_structures_rejects_a_mixed_tenant_batch(store):
+    t, other = uuid4(), uuid4()
+    store.ensure_tenant(t)
+    store.ensure_tenant(other)
+    with pytest.raises(ValueError, match="one tenant"):
+        store.put_structures([(rec(t, uuid4()), {}, None), (rec(other, uuid4()), {}, None)])
+    assert store.tenant_state(t) == (0, 0) and store.tenant_state(other) == (0, 0)

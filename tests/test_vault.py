@@ -227,3 +227,21 @@ def test_a_second_instance_sees_a_bulk_load(env):
     ids = [uuid4() for _ in range(12)]
     v1.put_many([(i, "CCO", None) for i in ids], chunk=5)
     assert set(v2.substructure("CCO")) == set(ids)
+
+
+def test_put_many_retries_a_conflict_with_fresh_nonces_and_indexes_once(vault, monkeypatch):
+    real_put, attempts, indexed = vault.store.put_structures, [], []
+
+    def flaky(batch):
+        attempts.append([rec.nonce for rec, _, _ in batch])
+        if len(attempts) == 1:
+            raise VersionConflict("simulated concurrent writer")
+        return real_put(batch)
+
+    real_add = vault.index.add_batch
+    monkeypatch.setattr(vault.store, "put_structures", flaky)
+    monkeypatch.setattr(vault.index, "add_batch", lambda items, n=-1: indexed.append(len(items)) or real_add(items, n))
+    ids = [uuid4(), uuid4()]
+    assert vault.put_many([(ids[0], "CCO", None), (ids[1], "CCN", None)]) == 2
+    assert len(attempts) == 2 and not set(attempts[0]) & set(attempts[1])     # re-sealed, not resent
+    assert indexed == [2] and set(vault.substructure("C")) == set(ids)
