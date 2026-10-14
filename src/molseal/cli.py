@@ -69,9 +69,9 @@ def cmd_keygen(args: argparse.Namespace) -> int:
 LOAD_CHUNK = 10_000
 
 
-def _parse_smiles_file(src: Path):
-    """Yield (id, canonical_smiles, inchikey) for each parseable line; count the rest."""
-    skipped = 0
+def _parse_smiles_file(src: Path, stats: dict[str, int]):
+    """Yield (id, canonical_smiles, inchikey) for each parseable line; count the rest in stats["skipped"]."""
+    stats["skipped"] = 0
     with open(src) as fin:
         for line in fin:
             tok = line.split()
@@ -79,10 +79,9 @@ def _parse_smiles_file(src: Path):
                 continue
             mol = Chem.MolFromSmiles(tok[0])
             if mol is None:
-                skipped += 1
+                stats["skipped"] += 1
                 continue
             yield uuid.uuid4(), Chem.MolToSmiles(mol), Chem.MolToInchiKey(mol)
-    _parse_smiles_file.skipped = skipped   # deliberate small trick: keeps the generator simple
 
 
 def cmd_load(args: argparse.Namespace) -> int:
@@ -90,7 +89,8 @@ def cmd_load(args: argparse.Namespace) -> int:
     src = Path(args.file)
     sidecar = src.with_name(src.name + ".ids.tsv")
     loaded = 0
-    rows = _parse_smiles_file(src)
+    stats: dict[str, int] = {}
+    rows = _parse_smiles_file(src, stats)
     with open(sidecar, "a") as fout:
         while True:
             chunk = list(itertools.islice(rows, LOAD_CHUNK))
@@ -103,7 +103,7 @@ def cmd_load(args: argparse.Namespace) -> int:
             print(f"{loaded} loaded", file=sys.stderr)
     if args.snapshot_dir:
         vault.save_snapshot()
-    print(f"loaded {loaded}, skipped {_parse_smiles_file.skipped}, sidecar {sidecar}")
+    print(f"loaded {loaded}, skipped {stats['skipped']}, sidecar {sidecar}")
     return 0
 
 

@@ -123,7 +123,12 @@ class Vault:
     def put_many(self, items: Iterable[tuple[UUID, str, dict[str, str] | None]], chunk: int = 10_000) -> int:
         """Bulk ingest. Each chunk is canonicalized and encrypted in Python, written in one store
         transaction (consecutive, commit-ordered sequence numbers), and appended to the index once.
-        Raises before any write if a chunk holds a duplicate id or an unparseable SMILES."""
+        Raises before any write if a chunk holds a duplicate id or an unparseable SMILES.
+
+        Validation and atomicity are per chunk, not per call: an id repeated in two different chunks is
+        written twice (last wins), and if chunk k fails, chunks 1..k-1 stay committed and indexed. The
+        exception does not carry how many rows were written; callers that resume (bench/load_molseal.py)
+        pass one chunk per call and record progress after each."""
         total = 0
         for group in batched(items, chunk):
             total += self._put_chunk(list(group))
