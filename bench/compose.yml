@@ -10,9 +10,11 @@ services:
       POSTGRES_PASSWORD: bench
       POSTGRES_DB: bench
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    # max_parallel_workers_per_gather=0: one backend on one core, so every cartridge row is threads=1
     command: >
       postgres -c shared_buffers=4GB -c maintenance_work_mem=2GB -c effective_cache_size=8GB
                -c work_mem=256MB -c rdkit.morgan_fp_size=2048 -c rdkit.do_chiral_sss=off
+               -c max_parallel_workers_per_gather=0
     shm_size: 1g
     ports:
       - "127.0.0.1:5440:5432"

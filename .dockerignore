@@ -3,3 +3,7 @@
 **/__pycache__
 bench/data
 bench/results
+*.key
+.env
+talks
+snapshots

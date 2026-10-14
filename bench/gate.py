@@ -1,7 +1,10 @@
-"""Milestone 2's first gate: load a 10k slice, then prove absence with a real dump, then the leak report."""
+"""Milestone 2's first gate: load a 10k slice, then prove absence in the DB, a real pg_dump and the
+log_statement=all statement log (bench/run_m2.sh step 2 starts `db` that way), then the leak report."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -26,6 +29,13 @@ def run_dump(dest: Path) -> None:
                         "-U", "molseal", "molseal"], check=True, stdout=f)
 
 
+def capture_log(dest: Path) -> int:
+    """The db container's log so far; returns how many statements it holds, so an empty log fails."""
+    out = subprocess.run(["docker", "compose", "logs", "--no-log-prefix", "db"], check=True, capture_output=True).stdout
+    dest.write_bytes(out)
+    return out.count(b"statement: ") + out.count(b"execute ")
+
+
 def main() -> int:
     RESULTS.mkdir(parents=True, exist_ok=True)
     slice_path = Path("bench/data/slice_10000.tsv")
@@ -44,12 +54,19 @@ def main() -> int:
     stats = load(slice_path, store, FileKeyProvider(key), tenant, progress_path=progress)
     sidecar = str(slice_path.with_name(slice_path.name + ".ids.tsv"))
     common = ["--db", DB, "--key", str(key), "--tenant", str(tenant)]
-    rc1 = cli.main(["absence-check", sidecar, *common])          # plants the control row
+    log_path = RESULTS / "gate_10k_pg.log"
+    log_statements = capture_log(log_path)                        # before the control row is planted
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc1 = cli.main(["absence-check", sidecar, "--log", str(log_path), *common])   # plants the control row
+    print(buf.getvalue(), end="")
+    log_hits = json.loads(buf.getvalue())["log_hits"]
     run_dump(RESULTS / "dump_10k.sql")
     rc2 = cli.main(["absence-check", sidecar, "--dump", str(RESULTS / "dump_10k.sql"), *common])
     rc3 = cli.main(["leak-report", sidecar, *common])
-    ok = rc1 == 0 and rc2 == 0 and rc3 == 0
+    ok = rc1 == 0 and rc2 == 0 and rc3 == 0 and log_statements > 0
     (RESULTS / "gate_10k.json").write_text(json.dumps({"load": stats, "absence_db": rc1, "absence_dump": rc2,
+                                                      "log_statements": log_statements, "log_hits": log_hits,
                                                       "leak_report": rc3, "ok": ok}, indent=1))
     print("GATE OK" if ok else "GATE FAILED")
     return 0 if ok else 1

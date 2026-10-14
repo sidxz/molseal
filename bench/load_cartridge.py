@@ -46,7 +46,15 @@ def _timed(engine: sa.Engine, stmt: str) -> float:
 
 
 def load(slice_path: Path, engine: sa.Engine, batch: int = 5000, results_dir: Path = Path("bench/results")) -> dict:
+    """Load into an empty `mols` table. A non-empty table or existing GiST indexes would turn the inserts
+    into ON CONFLICT no-ops and the builds into near-zero times, so both refuse (reset the volume)."""
     ensure_schema(engine)
+    with engine.connect() as c:
+        existing = c.execute(text("SELECT count(*) FROM mols")).scalar_one()
+        indexes = c.execute(text("SELECT count(*) FROM pg_indexes WHERE tablename = 'mols' "
+                                 "AND schemaname = current_schema() AND indexname LIKE 'mols_%_gist'")).scalar_one()
+    if existing or indexes:
+        raise SystemExit(f"mols is not empty ({existing} rows, {indexes} GiST indexes); reset the cartridge volume")
     rows = _rows(slice_path)
     n = 0
     t0 = time.perf_counter()
@@ -59,9 +67,13 @@ def load(slice_path: Path, engine: sa.Engine, batch: int = 5000, results_dir: Pa
         n += len(group)
         print(f"{n} rows", file=sys.stderr)
     insert_seconds = round(time.perf_counter() - t0, 2)
+    with engine.connect() as c:
+        inserted = c.execute(text("SELECT count(*) FROM mols")).scalar_one()
+    if inserted != n:            # rejected rows are inserted too, with m NULL
+        raise SystemExit(f"inserted {inserted} rows, expected {n}")
     fp_seconds = _timed(engine, "UPDATE mols SET mfp = morganbv_fp(m) WHERE mfp IS NULL AND m IS NOT NULL")
-    gist_m = _timed(engine, "CREATE INDEX IF NOT EXISTS mols_m_gist ON mols USING gist (m)")
-    gist_mfp = _timed(engine, "CREATE INDEX IF NOT EXISTS mols_mfp_gist ON mols USING gist (mfp)")
+    gist_m = _timed(engine, "CREATE INDEX mols_m_gist ON mols USING gist (m)")
+    gist_mfp = _timed(engine, "CREATE INDEX mols_mfp_gist ON mols USING gist (mfp)")
     _timed(engine, "ANALYZE mols")
     with engine.connect() as c:
         rejected = [r.id for r in c.execute(text("SELECT id FROM mols WHERE m IS NULL"))]
