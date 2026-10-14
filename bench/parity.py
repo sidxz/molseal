@@ -41,9 +41,16 @@ SQL_GEN_COUNT = f"SELECT count(*) FROM mols WHERE m @>> mol_to_xqmol({_Q})"
 
 
 def ensure_feature_column(conn) -> None:
-    """Gate 5 compares against the cartridge's feature-Morgan fingerprint; the column is added once."""
+    """Gate 5 compares against the cartridge's feature-Morgan fingerprint; the column is added once.
+    The cartridge's feature-Morgan size is its own session setting (default 512 bits, separate from
+    morgan_fp_size), so it is set here to the library's 2048; the gate-5 queries run on this same
+    connection, so the per-query fingerprint is 2048 bits too. Rows filled at another size are redone."""
+    conn.execute(text("SET rdkit.featmorgan_fp_size = 2048"))
     conn.execute(text("ALTER TABLE mols ADD COLUMN IF NOT EXISTS fmfp bfp"))
-    conn.execute(text("UPDATE mols SET fmfp = featmorganbv_fp(m, 2) WHERE fmfp IS NULL AND m IS NOT NULL"))
+    got = conn.execute(text("SELECT size(featmorganbv_fp(mol_from_smiles(CAST('C' AS cstring)), 2))")).scalar_one()
+    if got != 2048:
+        raise RuntimeError(f"rdkit.featmorgan_fp_size did not take: featmorganbv_fp gives {got} bits, expected 2048")
+    conn.execute(text("UPDATE mols SET fmfp = featmorganbv_fp(m, 2) WHERE m IS NOT NULL AND (fmfp IS NULL OR size(fmfp) <> 2048)"))
     conn.commit()
 
 
