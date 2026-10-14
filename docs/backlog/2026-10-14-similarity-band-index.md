@@ -12,4 +12,7 @@ position map per molecule per family and the merge logic.
 
 **Also parked from the same decision:** count-based fingerprints; the 1M and 2.4M rungs; the five bench
 harness items from the milestone-2 ledger (statement-log positive control, `run_m2.sh` step-3 header
-note, gate through a function instead of CLI stdout, GIT_SHA build argument, `_pack` profiling).
+note, gate through a function instead of CLI stdout, GIT_SHA build argument, `_pack` profiling). For the next 500k run: add a leg that opens the snapshot with one family missing and
+compares the recomputed rows to gate 10's Python reference, since the recompute-on-load path has only unit
+coverage; and add a handful of E/Z fragment queries to gate 8, whose current chiral queries are whole
+molecules that match essentially themselves.

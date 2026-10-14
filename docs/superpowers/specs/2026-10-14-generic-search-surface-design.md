@@ -141,7 +141,8 @@ Vault.count_substructure(query, kind="smiles", *, generalized=False, use_chirali
   with chirality (`HasSubstructMatch`, or `rdGeneralizedSubstruct.MolHasSubstructMatch` for generalized
   queries); the live filter and `max_results` apply to the survivors. Queries without bond stereo keep
   the native path. Cost ceiling: one full parse per chirality-off hit, so a broad E/Z query on a large
-  library pays hits × parse. A sanitizing holder fixes this natively but measured 4.3× slower
+  library pays hits × parse. The post-filter runs under the vault's single lock, so a broad E/Z query blocks
+  that vault's other reads and writes for its duration. A sanitizing holder fixes this natively but measured 4.3× slower
   single-threaded (3.5× on all cores) for every substructure search, so it was rejected.
 - **Pattern holder.** The index builds its screen with `AddPatterns(lib, TautomerPatternHolder(), numThreads)`
   instead of the plain holder. Measured on 20k molecules: same build time, identical hits for plain, SMARTS
