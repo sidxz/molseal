@@ -87,3 +87,75 @@ def test_not_a_snapshot_is_refused(tmp_path):
     p.write_bytes(b"hello")
     with pytest.raises(snapshot.SnapshotError):
         snapshot.load(p, KEY, uuid4(), 1)
+
+
+import json
+import numpy as np
+from molseal.engine import FEATMORGAN2, MORGAN2, MORGAN2_CHIRAL
+from tests.mols import molecules
+
+
+def make_two_family_index():
+    smiles = molecules()[:60]
+    ids = [uuid4() for _ in smiles]
+    idx = engine.StructureIndex((MORGAN2, FEATMORGAN2))
+    idx.add_batch([(i, s, 1) for i, s in zip(ids, smiles)])
+    idx.mark_dead(ids[0], 2)
+    idx.last_seq = 9
+    return idx, ids, smiles
+
+
+def test_format_two_round_trip_keeps_every_family(tmp_path):
+    idx, ids, smiles = make_two_family_index()
+    t = uuid4()
+    p = tmp_path / "t.molseal"
+    snapshot.save(idx, p, KEY, t, 1, chunk_size=4096)
+    raw = p.read_bytes()
+    (hlen,) = struct.unpack(">I", raw[8:12])
+    assert json.loads(raw[12 : 12 + hlen])["format"] == 2
+    back = snapshot.load(p, KEY, t, 1, (MORGAN2, FEATMORGAN2))
+    assert [f.name for f in back.families] == ["morgan2", "featmorgan2"] and len(back) == len(ids) - 1
+    for fam in ("morgan2", "featmorgan2"):
+        f1, m1 = idx.fingerprints(ids, fam)
+        f2, m2 = back.fingerprints(ids, fam)
+        assert f1 == f2 and np.array_equal(m1, m2)
+    assert {i for i, _ in back.similar(smiles[3], 0.999, family="featmorgan2")} >= {ids[3]}
+
+
+def test_load_drops_unrequested_and_computes_missing_families(tmp_path):
+    idx, ids, _ = make_two_family_index()
+    t = uuid4()
+    p = tmp_path / "t.molseal"
+    snapshot.save(idx, p, KEY, t, 1)
+    fewer = snapshot.load(p, KEY, t, 1, (MORGAN2,))
+    assert [f.name for f in fewer.families] == ["morgan2"]
+    more = snapshot.load(p, KEY, t, 1, (MORGAN2, MORGAN2_CHIRAL))
+    assert [f.name for f in more.families] == ["morgan2", "morgan2-chiral"]
+    fresh = engine.StructureIndex((MORGAN2_CHIRAL,))
+    fresh.add_batch([(i, s, 1) for i, s in zip(ids, molecules()[:60])])
+    fresh.mark_dead(ids[0], 2)
+    f1, m1 = more.fingerprints(ids, "morgan2-chiral")
+    f2, m2 = fresh.fingerprints(ids, "morgan2-chiral")
+    assert f1 == f2 and np.array_equal(m1, m2)
+    assert snapshot.load(p, KEY, t, 1).families == (MORGAN2,)      # the default
+
+
+def test_a_format_one_file_raises_the_format_error_only(tmp_path, monkeypatch):
+    idx, _, _ = make_index()
+    t = uuid4()
+    p = tmp_path / "t.molseal"
+    monkeypatch.setattr(snapshot, "FORMAT_VERSION", 1)
+    snapshot.save(idx, p, KEY, t, 1)
+    monkeypatch.undo()
+    assert snapshot.FORMAT_VERSION == 2
+    with pytest.raises(snapshot.SnapshotFormatError):
+        snapshot.load(p, KEY, t, 1)
+    # a header edited to claim format 2 on format-1 content is tampering, not a version mismatch
+    raw = p.read_bytes()
+    (hlen,) = struct.unpack(">I", raw[8:12])
+    edited = raw[:12] + raw[12 : 12 + hlen].replace(b'"format": 1', b'"format": 2') + raw[12 + hlen :]
+    assert edited != raw
+    p.write_bytes(edited)
+    with pytest.raises(snapshot.SnapshotError) as info:
+        snapshot.load(p, KEY, t, 1)
+    assert not isinstance(info.value, snapshot.SnapshotFormatError)
