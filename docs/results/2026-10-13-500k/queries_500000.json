@@ -5,247 +5,247 @@
   {
    "id": "frag-000",
    "kind": "smiles",
-   "query": "CCC(C)O"
+   "query": "CC1CCC1"
   },
   {
    "id": "frag-001",
    "kind": "smiles",
-   "query": "CC[CH]C=O"
+   "query": "CCCC=O"
   },
   {
    "id": "frag-002",
    "kind": "smiles",
-   "query": "[CH]1C[CH]CC1"
+   "query": "c1ncsn1"
   },
   {
    "id": "frag-003",
    "kind": "smiles",
-   "query": "C1CCOCC1"
+   "query": "CC/N=C(/N)S"
   },
   {
    "id": "frag-004",
    "kind": "smiles",
-   "query": "CC(=O)C(=O)O"
+   "query": "CCC(=O)NO"
   },
   {
    "id": "frag-005",
    "kind": "smiles",
-   "query": "C[C@@H](C=O)CS"
+   "query": "Cc1ccon1"
   },
   {
    "id": "frag-006",
    "kind": "smiles",
-   "query": "Cn1cccc1"
+   "query": "Nc1ncns1"
   },
   {
    "id": "frag-007",
    "kind": "smiles",
-   "query": "O=C1CC[CH]N1"
+   "query": "OC1CCNC1"
   },
   {
    "id": "frag-008",
    "kind": "smiles",
-   "query": "O=CCCC=O"
+   "query": "C1CCCCCC1"
   },
   {
    "id": "frag-009",
    "kind": "smiles",
-   "query": "C1CCCCCC1"
+   "query": "CCC1=NCCN1"
   },
   {
    "id": "frag-010",
    "kind": "smiles",
-   "query": "CCC(CC)CC"
+   "query": "Cc1ccccn1"
   },
   {
    "id": "frag-011",
    "kind": "smiles",
-   "query": "CN1CCNCC1"
+   "query": "N#CC1CCCC1"
   },
   {
    "id": "frag-012",
    "kind": "smiles",
-   "query": "N#CC1CCOC1"
+   "query": "O=CCCCC=O"
   },
   {
    "id": "frag-013",
    "kind": "smiles",
-   "query": "O=C1C[CH]C(O)O1"
+   "query": "C1CN2CCSC2=N1"
   },
   {
    "id": "frag-014",
    "kind": "smiles",
-   "query": "Oc1cncnc1"
+   "query": "CCCCC(=O)NO"
   },
   {
    "id": "frag-015",
    "kind": "smiles",
-   "query": "C1CN2CCC1CC2"
+   "query": "CN1CCCNCC1"
   },
   {
    "id": "frag-016",
    "kind": "smiles",
-   "query": "CCCC(C)C(=O)O"
+   "query": "Cn1cccc1C#N"
   },
   {
    "id": "frag-017",
    "kind": "smiles",
-   "query": "Fc1cccc(Br)c1"
+   "query": "O=[N+]([O-])c1cccs1"
   },
   {
    "id": "frag-018",
    "kind": "smiles",
-   "query": "O=CC1=COCCC1"
+   "query": "C1C2CC3CC1CC3C2"
   },
   {
    "id": "frag-019",
    "kind": "smiles",
-   "query": "O[C@@H]1[C@@H](O)CN[C@@H]1O"
+   "query": "CCCCC(O)C(=O)O"
   },
   {
    "id": "frag-020",
    "kind": "smiles",
-   "query": "CCCCC(C)(C)CC"
+   "query": "Cn1cncc1[N+](=O)[O-]"
   },
   {
    "id": "frag-021",
    "kind": "smiles",
-   "query": "Cc1cccc(C)c1Cl"
+   "query": "O=C(O)C1=CCCCO1"
   },
   {
    "id": "frag-022",
    "kind": "smiles",
-   "query": "O=C/C=C\\n1ncnn1"
+   "query": "c1cc2cc[nH]cc-2n1"
   },
   {
    "id": "frag-023",
    "kind": "smiles",
-   "query": "O=C[CH][CH][CH][C@H](O)CO"
+   "query": "c1ccc2c(c1)CCN2"
   },
   {
    "id": "frag-024",
    "kind": "smiles",
-   "query": "c1ccc2sncc2c1"
+   "query": "CC1OCC(O)C(O)C1O"
   },
   {
    "id": "frag-025",
    "kind": "smiles",
-   "query": "c1cnc2ccnn2c1"
+   "query": "CCCCCCCC(C)O"
   },
   {
    "id": "frag-026",
    "kind": "smiles",
-   "query": "Cc1ccnc2c1CCN2"
+   "query": "NS(=O)(=O)c1ccccc1"
   },
   {
    "id": "frag-027",
    "kind": "smiles",
-   "query": "Clc1ccc2[nH]cnc2c1"
+   "query": "O/C(S)=N\\c1ccccc1"
   },
   {
    "id": "frag-028",
    "kind": "smiles",
-   "query": "O=[SH](=O)c1ccc(Cl)cc1"
+   "query": "c1cnc2c(c1)CCCN2"
   },
   {
    "id": "frag-029",
    "kind": "smiles",
-   "query": "c1cnc2ncncc2c1"
+   "query": "Cc1ccc2c(n1)CCNC2"
   },
   {
    "id": "frag-030",
    "kind": "smiles",
-   "query": "CCC#C[C@@]1(O)[CH]O[CH][C@@H]1O"
+   "query": "Cc1ncc2cccnc2n1"
   },
   {
    "id": "frag-031",
    "kind": "smiles",
-   "query": "Cc1ccc2ccccc2c1"
+   "query": "NC1CCOc2ccccc21"
   },
   {
    "id": "frag-032",
    "kind": "smiles",
-   "query": "Nc1ncnc2ccccc12"
+   "query": "O=c1ocnc2ccccc12"
   },
   {
    "id": "frag-033",
    "kind": "smiles",
-   "query": "Oc1ccc2ccccc2c1"
+   "query": "CC1=C(C=O)CC(C#N)=C(N)N1"
   },
   {
    "id": "frag-034",
    "kind": "smiles",
-   "query": "CN1C(=O)C(=O)c2ccccc21"
+   "query": "N#Cc1ccc([SH](=O)=O)c(Cl)c1"
   },
   {
    "id": "frag-035",
    "kind": "smiles",
-   "query": "Cc1ccc(F)c2c1CCCO2"
+   "query": "O=C1CC(c2cnccn2)=NN1"
   },
   {
    "id": "frag-036",
    "kind": "smiles",
-   "query": "OCC#C[C]1CN2CCC1CC2"
+   "query": "CCCC(C=O)CP(=O)(O)C(C)N"
   },
   {
    "id": "frag-037",
    "kind": "smiles",
-   "query": "c1cc2cnc3ccsc3n2c1"
+   "query": "CN1CC2(CCNCC2)OCC1=O"
   },
   {
    "id": "frag-038",
    "kind": "smiles",
-   "query": "O=CN/N=C/c1cc(Cl)ccc1O"
+   "query": "c1ccc2c(c1)OCc1nccn1-2"
   },
   {
    "id": "frag-039",
    "kind": "smiles",
-   "query": "c1cnc2c(c1)ncc1cncn12"
+   "query": "CCN(c1ccncc1)n1cccc1"
   },
   {
    "id": "frag-040",
    "kind": "smiles",
-   "query": "Cn1c(=O)c2nc(N)[nH]c2n(C)c1=O"
+   "query": "O=C1c2c(O)cc(O)cc2OCC1O"
   },
   {
    "id": "frag-041",
    "kind": "smiles",
-   "query": "O=CC1=Cc2ccc(Br)cc2S1(=O)=O"
+   "query": "c1cnc2c3c(ccc2c1)CCCC3"
   },
   {
    "id": "frag-042",
    "kind": "smiles",
-   "query": "NC1=NS(=O)(=O)c2cc(Cl)c(Cl)cc2N1"
+   "query": "O=[N+]([O-])c1cc2ccc(O)nc2cc1Cl"
   },
   {
    "id": "frag-043",
    "kind": "smiles",
-   "query": "O=c1c2ccccc2oc2ncccc12"
+   "query": "CC1=CC(=O)c2[nH]c3ccccc3c2C1=O"
   },
   {
    "id": "frag-044",
    "kind": "smiles",
-   "query": "O=C1Nc2ccc(Cl)cc2C(C(F)(F)F)O1"
+   "query": "O=[SH](=O)c1ccc2c(c1)[nH]c1ccccc12"
   },
   {
    "id": "frag-045",
    "kind": "smiles",
-   "query": "CC12N[C@H](CC3=C1CCCC3)C1CCCCC12"
+   "query": "CN1C(O)=C(C=O)c2ccc(Cl)cc2S1(=O)=O"
   },
   {
    "id": "frag-046",
    "kind": "smiles",
-   "query": "Cc1ccc2c(c1)OC(=O)c1ccccc1O2"
+   "query": "O=C1Nc2ccc(F)c(F)c2C(C(F)(F)F)O1"
   },
   {
    "id": "frag-047",
    "kind": "smiles",
-   "query": "C=C1C(=O)O[C@@H]2/C=C(/C)CC[CH]C3=C[C@@H](OC3=O)[C@@H]12"
+   "query": "CC1(O)CCCC2(C)Cc3c(O)ccc(O)c3CC12"
   },
   {
    "id": "frag-048",
    "kind": "smiles",
-   "query": "c1ccc2c(c1)CCc1ccccc1C21CCNC1"
+   "query": "C=C1CCC[C@@H]2[C@H]1C(=O)C[C@@](C)(O)[C@H]1CC[C@H](C)[C@@H]2O1"
   },
   {
    "id": "frag-049",

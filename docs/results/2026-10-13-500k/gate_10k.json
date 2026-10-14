@@ -2,13 +2,15 @@
  "load": {
   "rows": 10000,
   "chunks": 1,
-  "resumed_from": 0,
-  "seconds": 2.91,
-  "rows_per_second": 3442.3,
-  "max_rss_mb": 396.5
+  "resumed_from_row": 0,
+  "seconds": 3.39,
+  "rows_per_second": 2945.8,
+  "max_rss_mb": 397.3
  },
  "absence_db": 0,
  "absence_dump": 0,
+ "log_statements": 20042,
+ "log_hits": 0,
  "leak_report": 0,
  "ok": true
 }
