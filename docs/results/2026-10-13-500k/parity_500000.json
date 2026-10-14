@@ -7,443 +7,515 @@
  "gate2": [
   {
    "id": "frag-000",
-   "molseal": 88984,
-   "cartridge": 88984,
+   "molseal": 2212,
+   "molseal_count": 2212,
+   "cartridge": 2212,
    "ok": true
   },
   {
    "id": "frag-001",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 144904,
+   "molseal_count": 144904,
+   "cartridge": 144904,
    "ok": true
   },
   {
    "id": "frag-002",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 482,
+   "molseal_count": 482,
+   "cartridge": 482,
    "ok": true
   },
   {
    "id": "frag-003",
-   "molseal": 13840,
-   "cartridge": 13840,
+   "molseal": 1707,
+   "molseal_count": 1707,
+   "cartridge": 1707,
    "ok": true
   },
   {
    "id": "frag-004",
-   "molseal": 672,
-   "cartridge": 672,
+   "molseal": 5294,
+   "molseal_count": 5294,
+   "cartridge": 5294,
    "ok": true
   },
   {
    "id": "frag-005",
-   "molseal": 2208,
-   "cartridge": 2208,
+   "molseal": 3929,
+   "molseal_count": 3929,
+   "cartridge": 3929,
    "ok": true
   },
   {
    "id": "frag-006",
-   "molseal": 18026,
-   "cartridge": 18026,
+   "molseal": 205,
+   "molseal_count": 205,
+   "cartridge": 205,
    "ok": true
   },
   {
    "id": "frag-007",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 3131,
+   "molseal_count": 3131,
+   "cartridge": 3131,
    "ok": true
   },
   {
    "id": "frag-008",
-   "molseal": 16960,
-   "cartridge": 16960,
-   "ok": true
-  },
-  {
-   "id": "frag-009",
    "molseal": 5016,
+   "molseal_count": 5016,
    "cartridge": 5016,
    "ok": true
   },
   {
+   "id": "frag-009",
+   "molseal": 563,
+   "molseal_count": 563,
+   "cartridge": 563,
+   "ok": true
+  },
+  {
    "id": "frag-010",
-   "molseal": 49354,
-   "cartridge": 49354,
+   "molseal": 30723,
+   "molseal_count": 30723,
+   "cartridge": 30723,
    "ok": true
   },
   {
    "id": "frag-011",
-   "molseal": 31724,
-   "cartridge": 31724,
+   "molseal": 77,
+   "molseal_count": 77,
+   "cartridge": 77,
    "ok": true
   },
   {
    "id": "frag-012",
-   "molseal": 17,
-   "cartridge": 17,
+   "molseal": 13389,
+   "molseal_count": 13389,
+   "cartridge": 13389,
    "ok": true
   },
   {
    "id": "frag-013",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 67,
+   "molseal_count": 67,
+   "cartridge": 67,
    "ok": true
   },
   {
    "id": "frag-014",
-   "molseal": 746,
-   "cartridge": 746,
+   "molseal": 2855,
+   "molseal_count": 2855,
+   "cartridge": 2855,
    "ok": true
   },
   {
    "id": "frag-015",
-   "molseal": 1358,
-   "cartridge": 1358,
+   "molseal": 1135,
+   "molseal_count": 1135,
+   "cartridge": 1135,
    "ok": true
   },
   {
    "id": "frag-016",
-   "molseal": 12127,
-   "cartridge": 12127,
+   "molseal": 61,
+   "molseal_count": 61,
+   "cartridge": 61,
    "ok": true
   },
   {
    "id": "frag-017",
-   "molseal": 286,
-   "cartridge": 286,
+   "molseal": 184,
+   "molseal_count": 184,
+   "cartridge": 184,
    "ok": true
   },
   {
    "id": "frag-018",
-   "molseal": 235,
-   "cartridge": 235,
+   "molseal": 36,
+   "molseal_count": 36,
+   "cartridge": 36,
    "ok": true
   },
   {
    "id": "frag-019",
-   "molseal": 40,
-   "cartridge": 40,
+   "molseal": 1822,
+   "molseal_count": 1822,
+   "cartridge": 1822,
    "ok": true
   },
   {
    "id": "frag-020",
-   "molseal": 24298,
-   "cartridge": 24298,
+   "molseal": 430,
+   "molseal_count": 430,
+   "cartridge": 430,
    "ok": true
   },
   {
    "id": "frag-021",
-   "molseal": 231,
-   "cartridge": 231,
+   "molseal": 248,
+   "molseal_count": 248,
+   "cartridge": 248,
    "ok": true
   },
   {
    "id": "frag-022",
-   "molseal": 10,
-   "cartridge": 10,
+   "molseal": 206,
+   "molseal_count": 206,
+   "cartridge": 206,
    "ok": true
   },
   {
    "id": "frag-023",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 6335,
+   "molseal_count": 6335,
+   "cartridge": 6335,
    "ok": true
   },
   {
    "id": "frag-024",
-   "molseal": 462,
-   "cartridge": 462,
+   "molseal": 5171,
+   "molseal_count": 5171,
+   "cartridge": 5171,
    "ok": true
   },
   {
    "id": "frag-025",
-   "molseal": 1102,
-   "cartridge": 1102,
+   "molseal": 22759,
+   "molseal_count": 22759,
+   "cartridge": 22759,
    "ok": true
   },
   {
    "id": "frag-026",
-   "molseal": 1,
-   "cartridge": 1,
+   "molseal": 26810,
+   "molseal_count": 26810,
+   "cartridge": 26810,
    "ok": true
   },
   {
    "id": "frag-027",
-   "molseal": 967,
-   "cartridge": 967,
+   "molseal": 101,
+   "molseal_count": 101,
+   "cartridge": 101,
    "ok": true
   },
   {
    "id": "frag-028",
-   "molseal": 2198,
-   "cartridge": 2198,
+   "molseal": 309,
+   "molseal_count": 309,
+   "cartridge": 309,
    "ok": true
   },
   {
    "id": "frag-029",
-   "molseal": 1476,
-   "cartridge": 1476,
+   "molseal": 33,
+   "molseal_count": 33,
+   "cartridge": 33,
    "ok": true
   },
   {
    "id": "frag-030",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 226,
+   "molseal_count": 226,
+   "cartridge": 226,
    "ok": true
   },
   {
    "id": "frag-031",
-   "molseal": 7583,
-   "cartridge": 7583,
+   "molseal": 958,
+   "molseal_count": 958,
+   "cartridge": 958,
    "ok": true
   },
   {
    "id": "frag-032",
-   "molseal": 3960,
-   "cartridge": 3960,
+   "molseal": 337,
+   "molseal_count": 337,
+   "cartridge": 337,
    "ok": true
   },
   {
    "id": "frag-033",
-   "molseal": 3758,
-   "cartridge": 3758,
+   "molseal": 18,
+   "molseal_count": 18,
+   "cartridge": 18,
    "ok": true
   },
   {
    "id": "frag-034",
-   "molseal": 384,
-   "cartridge": 384,
+   "molseal": 11,
+   "molseal_count": 11,
+   "cartridge": 11,
    "ok": true
   },
   {
    "id": "frag-035",
-   "molseal": 56,
-   "cartridge": 56,
+   "molseal": 14,
+   "molseal_count": 14,
+   "cartridge": 14,
    "ok": true
   },
   {
    "id": "frag-036",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 85,
+   "molseal_count": 85,
+   "cartridge": 85,
    "ok": true
   },
   {
    "id": "frag-037",
    "molseal": 47,
+   "molseal_count": 47,
    "cartridge": 47,
    "ok": true
   },
   {
    "id": "frag-038",
-   "molseal": 54,
-   "cartridge": 54,
+   "molseal": 30,
+   "molseal_count": 30,
+   "cartridge": 30,
    "ok": true
   },
   {
    "id": "frag-039",
-   "molseal": 31,
-   "cartridge": 31,
+   "molseal": 32,
+   "molseal_count": 32,
+   "cartridge": 32,
    "ok": true
   },
   {
    "id": "frag-040",
-   "molseal": 170,
-   "cartridge": 170,
+   "molseal": 88,
+   "molseal_count": 88,
+   "cartridge": 88,
    "ok": true
   },
   {
    "id": "frag-041",
-   "molseal": 1,
-   "cartridge": 1,
+   "molseal": 39,
+   "molseal_count": 39,
+   "cartridge": 39,
    "ok": true
   },
   {
    "id": "frag-042",
-   "molseal": 4,
-   "cartridge": 4,
-   "ok": true
-  },
-  {
-   "id": "frag-043",
-   "molseal": 35,
-   "cartridge": 35,
-   "ok": true
-  },
-  {
-   "id": "frag-044",
    "molseal": 51,
+   "molseal_count": 51,
    "cartridge": 51,
    "ok": true
   },
   {
+   "id": "frag-043",
+   "molseal": 7,
+   "molseal_count": 7,
+   "cartridge": 7,
+   "ok": true
+  },
+  {
+   "id": "frag-044",
+   "molseal": 3,
+   "molseal_count": 3,
+   "cartridge": 3,
+   "ok": true
+  },
+  {
    "id": "frag-045",
-   "molseal": 1,
-   "cartridge": 1,
+   "molseal": 5,
+   "molseal_count": 5,
+   "cartridge": 5,
    "ok": true
   },
   {
    "id": "frag-046",
-   "molseal": 31,
-   "cartridge": 31,
+   "molseal": 14,
+   "molseal_count": 14,
+   "cartridge": 14,
    "ok": true
   },
   {
    "id": "frag-047",
-   "molseal": 0,
-   "cartridge": 0,
+   "molseal": 1,
+   "molseal_count": 1,
+   "cartridge": 1,
    "ok": true
   },
   {
    "id": "frag-048",
-   "molseal": 2,
-   "cartridge": 2,
+   "molseal": 1,
+   "molseal_count": 1,
+   "cartridge": 1,
    "ok": true
   },
   {
    "id": "frag-049",
    "molseal": 1,
+   "molseal_count": 1,
    "cartridge": 1,
    "ok": true
   },
   {
    "id": "fg-amide",
    "molseal": 228905,
+   "molseal_count": 228905,
    "cartridge": 228905,
    "ok": true
   },
   {
    "id": "fg-carboxylic-acid",
    "molseal": 72442,
+   "molseal_count": 72442,
    "cartridge": 72442,
    "ok": true
   },
   {
    "id": "fg-ester",
    "molseal": 75872,
+   "molseal_count": 75872,
    "cartridge": 75872,
    "ok": true
   },
   {
    "id": "fg-sulfonamide",
    "molseal": 40141,
+   "molseal_count": 40141,
    "cartridge": 40141,
    "ok": true
   },
   {
    "id": "fg-nitrile",
    "molseal": 21908,
+   "molseal_count": 21908,
    "cartridge": 21908,
    "ok": true
   },
   {
    "id": "fg-nitro",
    "molseal": 17705,
+   "molseal_count": 17705,
    "cartridge": 17705,
    "ok": true
   },
   {
    "id": "fg-halogen",
    "molseal": 113191,
+   "molseal_count": 113191,
    "cartridge": 113191,
    "ok": true
   },
   {
    "id": "fg-trifluoromethyl",
    "molseal": 30443,
+   "molseal_count": 30443,
    "cartridge": 30443,
    "ok": true
   },
   {
    "id": "fg-phenol",
    "molseal": 63693,
+   "molseal_count": 63693,
    "cartridge": 63693,
    "ok": true
   },
   {
    "id": "fg-aniline",
    "molseal": 29518,
+   "molseal_count": 29518,
    "cartridge": 29518,
    "ok": true
   },
   {
    "id": "fg-pyridine",
    "molseal": 90804,
+   "molseal_count": 90804,
    "cartridge": 90804,
    "ok": true
   },
   {
    "id": "fg-piperidine",
    "molseal": 50299,
+   "molseal_count": 50299,
    "cartridge": 50299,
    "ok": true
   },
   {
    "id": "fg-piperazine",
    "molseal": 32083,
+   "molseal_count": 32083,
    "cartridge": 32083,
    "ok": true
   },
   {
    "id": "fg-morpholine",
    "molseal": 10341,
+   "molseal_count": 10341,
    "cartridge": 10341,
    "ok": true
   },
   {
    "id": "fg-indole",
    "molseal": 21738,
+   "molseal_count": 21738,
    "cartridge": 21738,
    "ok": true
   },
   {
    "id": "fg-urea",
    "molseal": 25434,
+   "molseal_count": 25434,
    "cartridge": 25434,
    "ok": true
   },
   {
    "id": "fg-ring-atom",
    "molseal": 491120,
+   "molseal_count": 491120,
    "cartridge": 491120,
    "ok": true
   },
   {
    "id": "fg-five-ring",
    "molseal": 280688,
+   "molseal_count": 280688,
    "cartridge": 280688,
    "ok": true
   },
   {
    "id": "fg-ring-junction",
    "molseal": 278710,
+   "molseal_count": 278710,
    "cartridge": 278710,
    "ok": true
   },
   {
    "id": "fg-ring-bond-CN",
    "molseal": 361969,
+   "molseal_count": 361969,
    "cartridge": 361969,
    "ok": true
   },
   {
    "id": "fg-non-amide-N",
    "molseal": 401459,
+   "molseal_count": 401459,
    "cartridge": 401459,
    "ok": true
   },
   {
    "id": "fg-alcohol",
    "molseal": 84126,
+   "molseal_count": 84126,
    "cartridge": 84126,
    "ok": true
   }
  ],
  "gate3": [
   {
-   "id": "frag-001",
+   "id": "frag-000",
    "equal": true,
-   "size_a": 0,
-   "size_b": 0,
+   "size_a": 2212,
+   "size_b": 2212,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -451,10 +523,26 @@
    "ok": true
   },
   {
+   "id": "frag-001",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
    "id": "frag-002",
    "equal": true,
-   "size_a": 0,
-   "size_b": 0,
+   "size_a": 482,
+   "size_b": 482,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-003",
+   "equal": true,
+   "size_a": 1707,
+   "size_b": 1707,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -464,8 +552,8 @@
   {
    "id": "frag-004",
    "equal": true,
-   "size_a": 672,
-   "size_b": 672,
+   "size_a": 5294,
+   "size_b": 5294,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -475,8 +563,19 @@
   {
    "id": "frag-005",
    "equal": true,
-   "size_a": 2208,
-   "size_b": 2208,
+   "size_a": 3929,
+   "size_b": 3929,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-006",
+   "equal": true,
+   "size_a": 205,
+   "size_b": 205,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -486,8 +585,8 @@
   {
    "id": "frag-007",
    "equal": true,
-   "size_a": 0,
-   "size_b": 0,
+   "size_a": 3131,
+   "size_b": 3131,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -495,7 +594,7 @@
    "ok": true
   },
   {
-   "id": "frag-009",
+   "id": "frag-008",
    "equal": true,
    "size_a": 5016,
    "size_b": 5016,
@@ -506,10 +605,10 @@
    "ok": true
   },
   {
-   "id": "frag-012",
+   "id": "frag-009",
    "equal": true,
-   "size_a": 17,
-   "size_b": 17,
+   "size_a": 563,
+   "size_b": 563,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -517,10 +616,31 @@
    "ok": true
   },
   {
+   "id": "frag-010",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "frag-011",
+   "equal": true,
+   "size_a": 77,
+   "size_b": 77,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-012",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
    "id": "frag-013",
    "equal": true,
-   "size_a": 0,
-   "size_b": 0,
+   "size_a": 67,
+   "size_b": 67,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -530,8 +650,8 @@
   {
    "id": "frag-014",
    "equal": true,
-   "size_a": 746,
-   "size_b": 746,
+   "size_a": 2855,
+   "size_b": 2855,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -541,8 +661,19 @@
   {
    "id": "frag-015",
    "equal": true,
-   "size_a": 1358,
-   "size_b": 1358,
+   "size_a": 1135,
+   "size_b": 1135,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-016",
+   "equal": true,
+   "size_a": 61,
+   "size_b": 61,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -552,8 +683,8 @@
   {
    "id": "frag-017",
    "equal": true,
-   "size_a": 286,
-   "size_b": 286,
+   "size_a": 184,
+   "size_b": 184,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -563,8 +694,8 @@
   {
    "id": "frag-018",
    "equal": true,
-   "size_a": 235,
-   "size_b": 235,
+   "size_a": 36,
+   "size_b": 36,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -574,8 +705,19 @@
   {
    "id": "frag-019",
    "equal": true,
-   "size_a": 40,
-   "size_b": 40,
+   "size_a": 1822,
+   "size_b": 1822,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-020",
+   "equal": true,
+   "size_a": 430,
+   "size_b": 430,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -585,8 +727,8 @@
   {
    "id": "frag-021",
    "equal": true,
-   "size_a": 231,
-   "size_b": 231,
+   "size_a": 248,
+   "size_b": 248,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -596,8 +738,8 @@
   {
    "id": "frag-022",
    "equal": true,
-   "size_a": 10,
-   "size_b": 10,
+   "size_a": 206,
+   "size_b": 206,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -607,8 +749,8 @@
   {
    "id": "frag-023",
    "equal": true,
-   "size_a": 0,
-   "size_b": 0,
+   "size_a": 6335,
+   "size_b": 6335,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -618,8 +760,8 @@
   {
    "id": "frag-024",
    "equal": true,
-   "size_a": 462,
-   "size_b": 462,
+   "size_a": 5171,
+   "size_b": 5171,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -628,31 +770,19 @@
   },
   {
    "id": "frag-025",
-   "equal": true,
-   "size_a": 1102,
-   "size_b": 1102,
-   "only_a": 0,
-   "only_b": 0,
-   "examples_only_a": [],
-   "examples_only_b": [],
+   "skipped": "count > 10000",
    "ok": true
   },
   {
    "id": "frag-026",
-   "equal": true,
-   "size_a": 1,
-   "size_b": 1,
-   "only_a": 0,
-   "only_b": 0,
-   "examples_only_a": [],
-   "examples_only_b": [],
+   "skipped": "count > 10000",
    "ok": true
   },
   {
    "id": "frag-027",
    "equal": true,
-   "size_a": 967,
-   "size_b": 967,
+   "size_a": 101,
+   "size_b": 101,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -662,8 +792,8 @@
   {
    "id": "frag-028",
    "equal": true,
-   "size_a": 2198,
-   "size_b": 2198,
+   "size_a": 309,
+   "size_b": 309,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -673,8 +803,8 @@
   {
    "id": "frag-029",
    "equal": true,
-   "size_a": 1476,
-   "size_b": 1476,
+   "size_a": 33,
+   "size_b": 33,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -684,8 +814,8 @@
   {
    "id": "frag-030",
    "equal": true,
-   "size_a": 0,
-   "size_b": 0,
+   "size_a": 226,
+   "size_b": 226,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -695,8 +825,8 @@
   {
    "id": "frag-031",
    "equal": true,
-   "size_a": 7583,
-   "size_b": 7583,
+   "size_a": 958,
+   "size_b": 958,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -706,8 +836,8 @@
   {
    "id": "frag-032",
    "equal": true,
-   "size_a": 3960,
-   "size_b": 3960,
+   "size_a": 337,
+   "size_b": 337,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -717,8 +847,8 @@
   {
    "id": "frag-033",
    "equal": true,
-   "size_a": 3758,
-   "size_b": 3758,
+   "size_a": 18,
+   "size_b": 18,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -728,8 +858,8 @@
   {
    "id": "frag-034",
    "equal": true,
-   "size_a": 384,
-   "size_b": 384,
+   "size_a": 11,
+   "size_b": 11,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -739,8 +869,8 @@
   {
    "id": "frag-035",
    "equal": true,
-   "size_a": 56,
-   "size_b": 56,
+   "size_a": 14,
+   "size_b": 14,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -750,8 +880,8 @@
   {
    "id": "frag-036",
    "equal": true,
-   "size_a": 0,
-   "size_b": 0,
+   "size_a": 85,
+   "size_b": 85,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -772,8 +902,8 @@
   {
    "id": "frag-038",
    "equal": true,
-   "size_a": 54,
-   "size_b": 54,
+   "size_a": 30,
+   "size_b": 30,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -783,8 +913,8 @@
   {
    "id": "frag-039",
    "equal": true,
-   "size_a": 31,
-   "size_b": 31,
+   "size_a": 32,
+   "size_b": 32,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -794,8 +924,8 @@
   {
    "id": "frag-040",
    "equal": true,
-   "size_a": 170,
-   "size_b": 170,
+   "size_a": 88,
+   "size_b": 88,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -805,8 +935,8 @@
   {
    "id": "frag-041",
    "equal": true,
-   "size_a": 1,
-   "size_b": 1,
+   "size_a": 39,
+   "size_b": 39,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -815,28 +945,6 @@
   },
   {
    "id": "frag-042",
-   "equal": true,
-   "size_a": 4,
-   "size_b": 4,
-   "only_a": 0,
-   "only_b": 0,
-   "examples_only_a": [],
-   "examples_only_b": [],
-   "ok": true
-  },
-  {
-   "id": "frag-043",
-   "equal": true,
-   "size_a": 35,
-   "size_b": 35,
-   "only_a": 0,
-   "only_b": 0,
-   "examples_only_a": [],
-   "examples_only_b": [],
-   "ok": true
-  },
-  {
-   "id": "frag-044",
    "equal": true,
    "size_a": 51,
    "size_b": 51,
@@ -847,7 +955,51 @@
    "ok": true
   },
   {
+   "id": "frag-043",
+   "equal": true,
+   "size_a": 7,
+   "size_b": 7,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-044",
+   "equal": true,
+   "size_a": 3,
+   "size_b": 3,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
    "id": "frag-045",
+   "equal": true,
+   "size_a": 5,
+   "size_b": 5,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-046",
+   "equal": true,
+   "size_a": 14,
+   "size_b": 14,
+   "only_a": 0,
+   "only_b": 0,
+   "examples_only_a": [],
+   "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "frag-047",
    "equal": true,
    "size_a": 1,
    "size_b": 1,
@@ -858,32 +1010,10 @@
    "ok": true
   },
   {
-   "id": "frag-046",
-   "equal": true,
-   "size_a": 31,
-   "size_b": 31,
-   "only_a": 0,
-   "only_b": 0,
-   "examples_only_a": [],
-   "examples_only_b": [],
-   "ok": true
-  },
-  {
-   "id": "frag-047",
-   "equal": true,
-   "size_a": 0,
-   "size_b": 0,
-   "only_a": 0,
-   "only_b": 0,
-   "examples_only_a": [],
-   "examples_only_b": [],
-   "ok": true
-  },
-  {
    "id": "frag-048",
    "equal": true,
-   "size_a": 2,
-   "size_b": 2,
+   "size_a": 1,
+   "size_b": 1,
    "only_a": 0,
    "only_b": 0,
    "examples_only_a": [],
@@ -899,6 +1029,116 @@
    "only_b": 0,
    "examples_only_a": [],
    "examples_only_b": [],
+   "ok": true
+  },
+  {
+   "id": "fg-amide",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-carboxylic-acid",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-ester",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-sulfonamide",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-nitrile",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-nitro",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-halogen",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-trifluoromethyl",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-phenol",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-aniline",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-pyridine",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-piperidine",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-piperazine",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-morpholine",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-indole",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-urea",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-ring-atom",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-five-ring",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-ring-junction",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-ring-bond-CN",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-non-amide-N",
+   "skipped": "count > 10000",
+   "ok": true
+  },
+  {
+   "id": "fg-alcohol",
+   "skipped": "count > 10000",
    "ok": true
   }
  ],
@@ -1354,5 +1594,6 @@
    "ok": true
   }
  ],
+ "zero_hit_queries": [],
  "ok": true
 }

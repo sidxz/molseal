@@ -75,73 +75,90 @@ Tests: `uv run pytest`. Set `MOLSEAL_TEST_DATABASE_URL` to also run the PostgreS
 ## Results
 
 500,000 ChEMBL 37 rows against the RDKit PostgreSQL cartridge (`Release_2025_03_3`), Docker VM with 6 CPUs
-and 15.6 GiB, arm64. All four parity gates passed (fingerprint bytes, substructure counts, id sets,
-similarity ids and scores). Files, metadata and memory peaks: [`docs/results/2026-10-13-500k/`](docs/results/README.md).
-Times are seconds; p50 and p95 are taken across queries of each query's median.
+and 15.6 GiB, arm64. All four parity gates passed (fingerprint bytes; substructure counts, with
+`count_substructure`, hit lists and the cartridge `count(*)` all equal; id sets; similarity ids and scores),
+and every one of the 72 substructure queries hits at least one row. Files, metadata, memory peaks and the
+full-ChEMBL estimate: [`docs/results/2026-10-13-500k/`](docs/results/README.md).
+Times are seconds; each query's time is the median of 5 repeats, and p50 (median) and p95 (nearest rank)
+are taken across queries.
 
 | side | where | mode | threads | op | cap | queries | p50 s | p95 s |
 |---|---|---|---|---|---|---|---|---|
-| cartridge | vm | cold | 1 | consumer_path | uncapped | 5 | 13.7233 | 13.8057 |
-| cartridge | vm | cold | 1 | count | uncapped | 72 | 0.3149 | 6.2756 |
-| cartridge | vm | cold | 1 | similar | uncapped | 50 | 0.0089 | 0.0147 |
-| cartridge | vm | cold | 1 | substructure | capped | 72 | 0.0454 | 0.7133 |
-| cartridge | vm | cold | 1 | substructure | uncapped | 72 | 0.3199 | 6.4142 |
-| cartridge | vm | cold | 1 | topk100 | capped | 50 | 0.0130 | 0.0208 |
-| cartridge | vm | warm | 1 | consumer_path | uncapped | 5 | 13.7106 | 13.9188 |
-| cartridge | vm | warm | 1 | count | uncapped | 72 | 0.3149 | 6.2829 |
-| cartridge | vm | warm | 1 | similar | uncapped | 50 | 0.0091 | 0.0154 |
-| cartridge | vm | warm | 1 | substructure | capped | 72 | 0.0448 | 0.7115 |
-| cartridge | vm | warm | 1 | substructure | uncapped | 72 | 0.3196 | 6.4232 |
-| cartridge | vm | warm | 1 | topk100 | capped | 50 | 0.0132 | 0.0209 |
-| molseal | host | warm | -1 | count | uncapped | 72 | 0.0259 | 0.4920 |
-| molseal | host | warm | -1 | end_to_end | capped | 72 | 0.0334 | 0.6503 |
-| molseal | host | warm | -1 | similar | uncapped | 50 | 0.0121 | 0.0123 |
-| molseal | host | warm | -1 | substructure | capped | 72 | 0.0077 | 0.0438 |
-| molseal | host | warm | -1 | substructure | uncapped | 72 | 0.0314 | 0.6044 |
-| molseal | host | warm | -1 | topk100 | capped | 50 | 0.0154 | 0.0165 |
-| molseal | host | warm | 1 | count | uncapped | 72 | 0.1910 | 4.8187 |
-| molseal | host | warm | 1 | similar | uncapped | 50 | 0.0119 | 0.0122 |
-| molseal | host | warm | 1 | substructure | capped | 72 | 0.0241 | 0.3588 |
-| molseal | host | warm | 1 | substructure | uncapped | 72 | 0.2047 | 4.8274 |
-| molseal | host | warm | 1 | topk100 | capped | 50 | 0.0149 | 0.0161 |
-| molseal | vm | cold | -1 | count | uncapped | 72 | 0.0570 | 1.3771 |
-| molseal | vm | cold | -1 | end_to_end | capped | 72 | 0.0793 | 1.5321 |
-| molseal | vm | cold | -1 | similar | uncapped | 50 | 0.0223 | 0.0226 |
-| molseal | vm | cold | -1 | substructure | capped | 72 | 0.0088 | 0.1122 |
-| molseal | vm | cold | -1 | substructure | uncapped | 72 | 0.0680 | 1.5268 |
-| molseal | vm | cold | -1 | topk100 | capped | 50 | 0.0257 | 0.0268 |
-| molseal | vm | cold | 1 | count | uncapped | 72 | 0.2313 | 5.7343 |
-| molseal | vm | cold | 1 | similar | uncapped | 50 | 0.0216 | 0.0224 |
-| molseal | vm | cold | 1 | substructure | capped | 72 | 0.0302 | 0.4720 |
-| molseal | vm | cold | 1 | substructure | uncapped | 72 | 0.2440 | 5.8672 |
-| molseal | vm | cold | 1 | topk100 | capped | 50 | 0.0247 | 0.0260 |
-| molseal | vm | warm | -1 | count | uncapped | 72 | 0.0565 | 1.3812 |
-| molseal | vm | warm | -1 | end_to_end | capped | 72 | 0.0787 | 1.5550 |
-| molseal | vm | warm | -1 | similar | uncapped | 50 | 0.0236 | 0.0268 |
-| molseal | vm | warm | -1 | substructure | capped | 72 | 0.0089 | 0.1102 |
-| molseal | vm | warm | -1 | substructure | uncapped | 72 | 0.0709 | 1.5526 |
-| molseal | vm | warm | -1 | topk100 | capped | 50 | 0.0266 | 0.0306 |
-| molseal | vm | warm | 1 | count | uncapped | 72 | 0.2377 | 5.7004 |
-| molseal | vm | warm | 1 | similar | uncapped | 50 | 0.0253 | 0.0255 |
-| molseal | vm | warm | 1 | substructure | capped | 72 | 0.0312 | 0.4854 |
-| molseal | vm | warm | 1 | substructure | uncapped | 72 | 0.2502 | 5.8159 |
-| molseal | vm | warm | 1 | topk100 | capped | 50 | 0.0255 | 0.0295 |
+| cartridge | vm | cold | 1 | consumer_path | uncapped | 5 | 39.2377 | 39.5751 |
+| cartridge | vm | cold | 1 | count | uncapped | 72 | 0.1043 | 6.1842 |
+| cartridge | vm | cold | 1 | similar | uncapped | 50 | 0.0091 | 0.0145 |
+| cartridge | vm | cold | 1 | substructure | capped | 72 | 0.0306 | 0.2874 |
+| cartridge | vm | cold | 1 | substructure | uncapped | 72 | 0.1097 | 6.2286 |
+| cartridge | vm | cold | 1 | topk100 | capped | 50 | 0.0130 | 0.0204 |
+| cartridge | vm | warm | 1 | consumer_path | uncapped | 5 | 39.0110 | 39.1015 |
+| cartridge | vm | warm | 1 | count | uncapped | 72 | 0.1023 | 6.0929 |
+| cartridge | vm | warm | 1 | similar | uncapped | 50 | 0.0094 | 0.0151 |
+| cartridge | vm | warm | 1 | substructure | capped | 72 | 0.0301 | 0.2835 |
+| cartridge | vm | warm | 1 | substructure | uncapped | 72 | 0.1064 | 6.1174 |
+| cartridge | vm | warm | 1 | topk100 | capped | 50 | 0.0130 | 0.0207 |
+| molseal | host | warm | -1 | count | uncapped | 72 | 0.0095 | 0.5374 |
+| molseal | host | warm | -1 | end_to_end | capped | 72 | 0.0237 | 0.6327 |
+| molseal | host | warm | -1 | similar | uncapped | 50 | 0.0123 | 0.0139 |
+| molseal | host | warm | -1 | substructure | capped | 72 | 0.0054 | 0.0348 |
+| molseal | host | warm | -1 | substructure | uncapped | 72 | 0.0125 | 0.6080 |
+| molseal | host | warm | -1 | topk100 | capped | 50 | 0.0160 | 0.0184 |
+| molseal | host | warm | 1 | count | uncapped | 72 | 0.0582 | 4.7110 |
+| molseal | host | warm | 1 | similar | uncapped | 50 | 0.0120 | 0.0122 |
+| molseal | host | warm | 1 | substructure | capped | 72 | 0.0124 | 0.1543 |
+| molseal | host | warm | 1 | substructure | uncapped | 72 | 0.0610 | 4.7600 |
+| molseal | host | warm | 1 | topk100 | capped | 50 | 0.0151 | 0.0162 |
+| molseal | vm | cold | -1 | count | uncapped | 72 | 0.0174 | 1.3943 |
+| molseal | vm | cold | -1 | end_to_end | capped | 72 | 0.0279 | 1.5601 |
+| molseal | vm | cold | -1 | similar | uncapped | 50 | 0.0221 | 0.0223 |
+| molseal | vm | cold | -1 | substructure | capped | 72 | 0.0060 | 0.0552 |
+| molseal | vm | cold | -1 | substructure | uncapped | 72 | 0.0205 | 1.9122 |
+| molseal | vm | cold | -1 | topk100 | capped | 50 | 0.0254 | 0.0265 |
+| molseal | vm | cold | 1 | count | uncapped | 72 | 0.0691 | 5.8718 |
+| molseal | vm | cold | 1 | similar | uncapped | 50 | 0.0226 | 0.0233 |
+| molseal | vm | cold | 1 | substructure | capped | 72 | 0.0157 | 0.2103 |
+| molseal | vm | cold | 1 | substructure | uncapped | 72 | 0.0719 | 6.0450 |
+| molseal | vm | cold | 1 | topk100 | capped | 50 | 0.0260 | 0.0272 |
+| molseal | vm | warm | -1 | count | uncapped | 72 | 0.0167 | 1.3607 |
+| molseal | vm | warm | -1 | end_to_end | capped | 72 | 0.0275 | 1.5352 |
+| molseal | vm | warm | -1 | similar | uncapped | 50 | 0.0221 | 0.0225 |
+| molseal | vm | warm | -1 | substructure | capped | 72 | 0.0060 | 0.0548 |
+| molseal | vm | warm | -1 | substructure | uncapped | 72 | 0.0209 | 1.5232 |
+| molseal | vm | warm | -1 | topk100 | capped | 50 | 0.0255 | 0.0266 |
+| molseal | vm | warm | 1 | count | uncapped | 72 | 0.0708 | 5.7643 |
+| molseal | vm | warm | 1 | similar | uncapped | 50 | 0.0223 | 0.0234 |
+| molseal | vm | warm | 1 | substructure | capped | 72 | 0.0170 | 0.2102 |
+| molseal | vm | warm | 1 | substructure | uncapped | 72 | 0.0745 | 5.9177 |
+| molseal | vm | warm | 1 | topk100 | capped | 50 | 0.0256 | 0.0272 |
 
 - **side**: `molseal` is encrypted rows with search in process; `cartridge` is the RDKit PostgreSQL cartridge.
-- **where**: `vm` runs inside the Docker VM under the same CPU and memory budget (the head-to-head); `host` is molseal native on the Mac, reported separately.
-- **mode**: `cold` is right after a database container restart (cartridge) or a fresh process loading the snapshot (molseal); `warm` is after `pg_prewarm` (cartridge) or a first pass (molseal).
-- **threads**: molseal with 1 thread or all cores (`-1`); the cartridge is one PostgreSQL backend.
-- **op**: `substructure` returns ids, `count` returns a count, `similar` is Tanimoto >= 0.7 on Morgan r2/2048, `topk100` is the 100 nearest, `end_to_end` adds molseal's tenant-state check and a fetch of up to 1000 hit rows, `consumer_path` is the cartridge's unindexed `mol_from_smiles(smiles) @> q` (5 queries, one run each), not the baseline.
+- **where**: `vm` is the head-to-head inside the Docker VM under one CPU and memory budget. molseal runs in a
+  container in the VM; the cartridge database runs in the VM, but its Python client runs on the Mac through
+  the Docker port forward (the round trip is in its times). `host` is molseal native on the Mac, reported separately.
+- **mode**: see "What cold means" below.
+- **threads**: molseal with 1 thread or all cores (`-1`); the cartridge is one PostgreSQL backend on one
+  core (`max_parallel_workers_per_gather=0`).
+- **op**: `substructure` returns ids, `count` returns a count, `similar` is Tanimoto >= 0.7 on Morgan r2/2048
+  (the cartridge returns ids only, molseal ids with scores), `topk100` is the 100 nearest (no parity gate),
+  `end_to_end` adds molseal's tenant-state check and a fetch of up to 1000 hit rows, `consumer_path` is the
+  cartridge's unindexed `mol_from_smiles(smiles) @> q` (5 queries, one run each), not the baseline.
 - **cap**: `capped` stops at 1000 hits (`maxResults=1000` vs `LIMIT 1000`); `uncapped` returns every hit.
 - **queries**: how many queries the row's percentiles cover.
+
+What cold means here. Cartridge `cold` is right after a container restart, with `pg_buffercache` showing
+shared buffers nearly empty (196 pages); the Docker VM's page cache is not dropped, and each query runs
+once untimed as `count(*)` and once as a warm-up before the timed repeats, so cold and warm cartridge
+rows are nearly equal. Cartridge `warm` adds `pg_prewarm` of the table and both indexes. molseal `cold`
+and `warm` are the same procedure (a fresh process loads the snapshot, then one untimed warm-up per
+query); molseal's real cold cost is loading the 169 MB snapshot: `cold_load_s` 0.73 s and 0.80 s in the
+VM, 0.82 s host-native.
 
 Leak report (500k rows): ciphertext size class correlates with heavy-atom count at Pearson r = 0.7767, but
 predicting the 10-heavy-atom bucket from the size class is right 43.0% of the time against a 42.7% majority
 baseline. Size classes: 256 B 490,357 rows, 512 B 8,278, 1024 B 1,347, 2048 B 15.
 
-Memory peaks (`docker stats` every ~30 s): cartridge container 1.25 GiB during the GiST builds and
-1.44 GiB during timing; molseal bench container 0.78 GiB (process `max_rss` 1117 MB); molseal
-host-native process `max_rss` 1470 MB.
+Memory peaks (`docker stats`): cartridge container 1.25 GiB during the GiST builds (load run, ~30 s samples)
+and 1.30 GiB during timing; molseal bench container 0.62 GiB (process `max_rss` 1118 MB); molseal
+host-native process `max_rss` 1402 MB.
 
 ## What is deliberately not built
 
@@ -162,4 +179,5 @@ BSD-3-Clause.
 ## Data attribution
 
 Benchmark queries and results derive from ChEMBL 37, EMBL-EBI, CC BY-SA 3.0, https://www.ebi.ac.uk/chembl/ .
-Slices are generated locally and not redistributed.
+Slices are generated locally and not redistributed. The published query sets
+(`docs/results/**/queries_*.json`) hold ChEMBL SMILES and fragments of them and are CC BY-SA 3.0, not BSD-3.
