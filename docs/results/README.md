@@ -4,6 +4,11 @@ Each folder is one run of `bench/run_m2.sh` (procedure: `bench/README.md`). Ever
 sits next to its label (side, where, mode, threads, cap); a number quoted without its labels is not a
 result. A run whose parity gates fail publishes nothing, so every folder here passed parity.
 
+## 2026-10-14-500k-search-surface
+
+Parity gates 1-10 for the search surface (fingerprint families, metrics, generalized, chiral and molblock
+queries) on the milestone-2 loads, all ok; no timing. See `2026-10-14-500k-search-surface/README.md`.
+
 ## 2026-10-13-500k
 
 ChEMBL 37, 500,000 requested rows (499,997 loaded; 3 failed RDKit canonicalization in the slice builder, 2 more
