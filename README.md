@@ -64,6 +64,109 @@ Commands:
 
 Each command takes `--db`, `--key`, `--tenant` and `--snapshot-dir`, or the environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY_FILE`, `MOLSEAL_TENANT` and `MOLSEAL_SNAPSHOT_DIR`.
 
+## Search surface
+
+Every search runs in the application process on an index built from the decrypted structures. The
+database only ever holds ciphertext.
+
+### Fingerprint families
+
+A family is `FingerprintSpec(name, bits, generator)`: the name is its identity (change it when the
+generator changes), bits is a multiple of 64, generator is a zero-argument factory returning any RDKit
+fingerprint generator. Register families when you build the vault:
+
+```python
+from molseal.engine import MORGAN2, MORGAN2_CHIRAL, FEATMORGAN2
+vault = Vault(store, keys, tenant, families=(MORGAN2, FEATMORGAN2))
+```
+
+| name | bits | generator | bytes per molecule |
+|---|---|---|---|
+| `morgan2` (default) | 2048 | Morgan radius 2 | 258 |
+| `morgan2-chiral` | 2048 | Morgan radius 2 with chirality | 258 |
+| `featmorgan2` | 2048 | feature-Morgan radius 2 | 258 |
+
+A family registered later (`vault.index.add_family`) is computed from the structures already indexed;
+nothing is read from the database. Each process declares the families it uses. A snapshot carries them
+by name and recomputes a missing one on load.
+
+### Similarity
+
+```python
+vault.similar(smiles, threshold=0.7, top_k=None, family="morgan2", metric=tanimoto)
+```
+
+A metric is a plain function of three counts, the intersection `c`, the query's bits `a` and the
+target's bits `b`, in `molseal.metrics`. Any function with that shape works.
+
+| metric | formula |
+|---|---|
+| `tanimoto` | c / (a + b − c) |
+| `dice` | 2c / (a + b) |
+| `cosine` | c / √(a·b) |
+| `tversky(query_weight, target_weight)` | c / (α(a − c) + β(b − c) + c) |
+
+Results are exact: every fingerprint is compared, there is no index and no approximation.
+
+### Substructure
+
+```python
+vault.substructure(query, kind="smiles", max_results=None, generalized=False, use_chirality=False)
+vault.count_substructure(query, kind="smiles", generalized=False, use_chirality=False)
+```
+
+| option | meaning |
+|---|---|
+| `kind` | `smiles`; `smarts`, taken literally with no aromaticity perception; `molblock`, sanitized with explicit hydrogens removed |
+| `generalized` | tautomer-insensitive matching through RDKit's extended query mol, with the same defaults as the cartridge's `@>>` |
+| `use_chirality` | defined stereo in the query must match defined stereo in the target, tetrahedral and E/Z |
+| `max_results` | an arbitrary subset of the matches of that size; stable across runs only with one thread |
+
+### Bulk reads
+
+```python
+payloads = vault.get_many(ids)                           # {id: Payload} for the live rows
+found, rows = vault.fingerprints(ids, family="morgan2")   # packed uint8 rows, one per live id found
+```
+
+A packed row becomes an RDKit bit vector in two lines:
+
+```python
+bv = DataStructs.ExplicitBitVect(2048)
+bv.SetBitsFromList(np.flatnonzero(np.unpackbits(row)).tolist())
+```
+
+Clustering, diverse picking, scaffold analysis and the like run in your own code on those rows and
+payloads. The library does not implement them. Fingerprints are partially invertible: treat the rows
+as confidential as the structures.
+
+### Chemistry notes
+
+1. Standardization is yours. The library canonicalizes and nothing more: salts, charges and tautomers
+   are stored as given. Run a query through the same standardizer as the stored structures.
+2. Similarity is tautomer-sensitive even though generalized substructure is not.
+3. Tversky: `query_weight` (alpha) weights bits only in the query, `target_weight` (beta) bits only in
+   the target. `tversky(1, 0)` scores how much of the query is inside the target.
+4. Thresholds do not transfer across families or metrics: Dice runs higher than Tanimoto on the same
+   pair, feature-Morgan higher than Morgan. A preset is a (family, metric, threshold) triple.
+5. With chirality on, undefined stereo in the query matches anything and undefined stereo in the
+   target never matches a defined query. The chiral family likewise needs stereo assigned on both sides.
+   RDKit's trusted SMILES holder never assigns double-bond stereo, so a chirality-on query with a defined
+   double bond is searched with chirality off and only its candidate hits are re-parsed and checked with
+   chirality; tetrahedral-only queries use the native path. The cost is one full parse per candidate, so
+   a broad E/Z query on a large library pays for every candidate.
+6. SMARTS is literal: a Kekulé SMARTS does not match aromatic targets. Molblock queries drop explicit
+   hydrogens, so a sketcher's hydrogens do not become required atoms.
+7. All families are bit vectors. Count-based fingerprints are not supported.
+
+Memory: 258 bytes per molecule per 2048-bit family on top of the substructure library. Saving a snapshot
+costs more than holding the index: at 500k molecules with three families the process peaked near 4 GB
+resident while writing the 694 MB snapshot, against about 0.9 GB during the rebuild itself. A snapshot of an
+older format is ignored and the index is rebuilt from the database; the next save writes the current
+format.
+
+A worked mapping of a compound registry onto these primitives is in `docs/examples/registry-adapter.md`.
+
 ## Absence check
 
 `absence-check` reads every SMILES and exact key in the sidecar and searches for each one, as raw bytes and as the hex digits PostgreSQL prints for `bytea` (`\x...` in `pg_dump -Fp` COPY data and in statement logs), in three places: the tenant's database columns, a plain dump (`--dump PATH` or `--run-pg-dump`), and a statement log (`--log PATH`). Any hit fails the run.
@@ -79,6 +182,7 @@ and 15.6 GiB, arm64. All four parity gates passed (fingerprint bytes; substructu
 `count_substructure`, hit lists and the cartridge `count(*)` all equal; id sets; similarity ids and scores),
 and every one of the 72 substructure queries hits at least one row. Files, metadata, memory peaks and the
 full-ChEMBL estimate: [`docs/results/2026-10-13-500k/`](docs/results/README.md).
+2026-10-14: parity-only run for the search surface, gates 5–10, in `docs/results/2026-10-14-500k-search-surface/`.
 Times are seconds; each query's time is the median of 5 repeats, and p50 (median) and p95 (nearest rank)
 are taken across queries.
 
@@ -163,13 +267,13 @@ host-native process `max_rss` 1402 MB.
 ## What is deliberately not built
 
 - Key rotation
-- Tautomer-insensitive search
-- Stereo-aware search
 - Molfile storage
 - Multi-process invalidation
 - Async API
 - KMS key providers
 - Any consumer adapter
+- Count-based fingerprints
+- A similarity index (every query scans every fingerprint)
 - Readers-writer lock
 
 ## License

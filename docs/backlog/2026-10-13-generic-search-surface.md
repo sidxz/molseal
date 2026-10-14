@@ -1,6 +1,6 @@
 # Generic search surface: fingerprint families, metrics, query kinds, bulk reads
 
-**Status:** agreed direction (user, 2026-10-13), not yet planned. Lands after the benchmark ladder.
+**Status:** implemented in milestone 3; spec at docs/superpowers/specs/2026-10-14-generic-search-surface-design.md. The similarity band index is parked separately.
 
 ## Why
 
