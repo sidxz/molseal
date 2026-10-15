@@ -144,8 +144,8 @@ def _column_bytes(store: SqlStore, tenant: uuid.UUID) -> bytes:
     with store.engine.connect() as conn:
         parts = [r.nonce + r.ciphertext for r in conn.execute(
             select(structures.c.nonce, structures.c.ciphertext).where(structures.c.tenant_id == tenant))]
-        parts += [r.nonce + r.wrapped for r in conn.execute(
-            select(tenant_keys.c.nonce, tenant_keys.c.wrapped).where(tenant_keys.c.tenant_id == tenant))]
+        parts += [r.wrapped for r in conn.execute(
+            select(tenant_keys.c.wrapped).where(tenant_keys.c.tenant_id == tenant))]
         parts += [r.hmac for r in conn.execute(
             select(structure_keys.c.hmac).where(structure_keys.c.tenant_id == tenant))]
     return b"\x00".join(parts)

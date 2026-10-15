@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import insert, update
 
-from molseal.store import StructureRecord, VersionConflict, structures, tenants
+from molseal.store import StructureRecord, VersionConflict, WrappedKey, structures, tenants
 
 
 def _rec(t, i, rv=1):
@@ -115,3 +115,12 @@ def test_a_batch_holds_the_cursor_lock_so_a_single_writer_lands_after_it(pg_stor
     assert got["seq"] == 1, "the rolled-back batch consumed nothing; the single writer got the next number"
     seqs = pg_store.put_structures([(_rec(t, i), {}, None) for i in ids])
     assert seqs == [2, 3, 4]
+
+
+def test_tenant_keys_replace_round_trip_pg(pg_store):
+    t = uuid4()
+    pg_store.ensure_tenant(t)
+    pg_store.put_tenant_keys(t, [WrappedKey("data", 1, b"w1"), WrappedKey("hmac", 1, b"w2")])
+    pg_store.replace_tenant_keys(t, [WrappedKey("data", 1, b"n1"), WrappedKey("hmac", 1, b"n2")])
+    assert {k.wrapped for k in pg_store.get_tenant_keys(t)} == {b"n1", b"n2"}
+    assert t in pg_store.list_tenants()

@@ -119,7 +119,7 @@ def test_wrong_kek_cannot_open_an_existing_tenant(env, tmp_path):
     Vault(store, kp, t).put(uuid4(), "CCO")
     other = tmp_path / "other.key"
     keys.generate_key_file(other)
-    with pytest.raises(crypto.SealError):
+    with pytest.raises(keys.KeyProviderError):
         Vault(store, keys.FileKeyProvider(other), t)
 
 

@@ -12,6 +12,7 @@ def pg_engine():
     if not url:
         pytest.skip("MOLSEAL_TEST_DATABASE_URL not set")
     engine = sa.create_engine(url)
+    metadata.drop_all(engine)       # a test database: tables hold only residue from earlier runs
     metadata.create_all(engine)
     yield engine
     engine.dispose()

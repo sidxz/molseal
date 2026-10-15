@@ -32,8 +32,7 @@ tenant_keys = Table(
     Column("tenant_id", Uuid, primary_key=True),
     Column("kind", String(8), primary_key=True),
     Column("version", Integer, primary_key=True),
-    Column("nonce", LargeBinary, nullable=False),
-    Column("wrapped", LargeBinary, nullable=False),
+    Column("wrapped", LargeBinary, nullable=False),   # provider-formatted; the label is bound inside
 )
 
 structures = Table(
@@ -72,7 +71,6 @@ class TenantRow:
 class WrappedKey:
     kind: str
     version: int
-    nonce: bytes
     wrapped: bytes
 
 
@@ -97,6 +95,8 @@ class StructureStore(Protocol):
     def seq_cursor(self, tenant_id: UUID) -> int: ...
     def get_tenant_keys(self, tenant_id: UUID) -> list[WrappedKey]: ...
     def put_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None: ...
+    def replace_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None: ...
+    def list_tenants(self) -> list[UUID]: ...
     def put_structure(self, rec: StructureRecord, key_hmacs: dict[str, bytes],
                       expected_row_version: int | None) -> int: ...
     def get_structures(self, tenant_id: UUID, ids: list[UUID]) -> dict[UUID, StructureRecord]: ...
@@ -115,6 +115,10 @@ def _record(row) -> StructureRecord:
         data_key_version=row.data_key_version, nonce=row.nonce, ciphertext=row.ciphertext,
         deleted=bool(row.deleted), seq=row.seq,
     )
+
+
+def _key_rows(tenant_id: UUID, keys: list[WrappedKey]) -> list[dict]:
+    return [dict(tenant_id=tenant_id, kind=k.kind, version=k.version, wrapped=k.wrapped) for k in keys]
 
 
 class SqlStore:
@@ -141,12 +145,22 @@ class SqlStore:
         with self.engine.connect() as conn:
             rows = conn.execute(select(tenant_keys).where(tenant_keys.c.tenant_id == tenant_id)
                                 .order_by(tenant_keys.c.kind, tenant_keys.c.version)).all()
-        return [WrappedKey(r.kind, r.version, r.nonce, r.wrapped) for r in rows]
+        return [WrappedKey(r.kind, r.version, r.wrapped) for r in rows]
 
     def put_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None:
         with self.engine.begin() as conn:
-            conn.execute(insert(tenant_keys), [dict(tenant_id=tenant_id, kind=k.kind, version=k.version,
-                                                    nonce=k.nonce, wrapped=k.wrapped) for k in keys])
+            conn.execute(insert(tenant_keys), _key_rows(tenant_id, keys))
+
+    def replace_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None:
+        """One transaction: delete every key row of the tenant, insert the given ones."""
+        with self.engine.begin() as conn:
+            conn.execute(delete(tenant_keys).where(tenant_keys.c.tenant_id == tenant_id))
+            if keys:
+                conn.execute(insert(tenant_keys), _key_rows(tenant_id, keys))
+
+    def list_tenants(self) -> list[UUID]:
+        with self.engine.connect() as conn:
+            return [r.tenant_id for r in conn.execute(select(tenants.c.tenant_id).order_by(tenants.c.tenant_id)).all()]
 
     def put_structure(self, rec: StructureRecord, key_hmacs: dict[str, bytes],
                       expected_row_version: int | None) -> int:

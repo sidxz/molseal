@@ -23,7 +23,7 @@ from . import snapshot
 from .crypto import open_sealed, pad, row_aad, seal, unpad
 from .engine import DEFAULT_FAMILIES, FingerprintSpec, QueryKind, StructureIndex, canonicalize
 from .metrics import Metric, tanimoto
-from .keys import KeyProvider, TenantKeys, exact_key_hmac, new_tenant_secret, unwrap_key, wrap_key
+from .keys import KeyProvider, TenantKeys, exact_key_hmac, new_tenant_secret, unwrap_tenant_key, wrap_tenant_key
 from .payload import Payload, decode, encode
 from .snapshot import SnapshotFormatError
 from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
@@ -52,7 +52,7 @@ class Vault:
         self.refresh_batch = refresh_batch
         self.families = tuple(families)
         self._lock = threading.Lock()   # ponytail: one lock for reads and writes; RW lock when readers contend
-        self._kek = key_provider.kek()
+        self._key_provider = key_provider
         self.tenant = store.ensure_tenant(tenant_id)
         self.keys = self._load_or_create_keys()
         self.index = self._load_snapshot() or StructureIndex(self.families)
@@ -67,17 +67,17 @@ class Vault:
             if self.store.max_seq(self.tenant_id) != 0:
                 raise VaultError(f"tenant {self.tenant_id} has structures but no key rows; refusing to mint new keys")
             data, hm = new_tenant_secret(), new_tenant_secret()
-            nd, wd = wrap_key(self._kek, self.tenant_id, "data", dv, data)
-            nh, wh = wrap_key(self._kek, self.tenant_id, "hmac", hv, hm)
-            self.store.put_tenant_keys(self.tenant_id, [WrappedKey("data", dv, nd, wd), WrappedKey("hmac", hv, nh, wh)])
+            wd = wrap_tenant_key(self._key_provider, self.tenant_id, "data", dv, data)
+            wh = wrap_tenant_key(self._key_provider, self.tenant_id, "hmac", hv, hm)
+            self.store.put_tenant_keys(self.tenant_id, [WrappedKey("data", dv, wd), WrappedKey("hmac", hv, wh)])
             return TenantKeys(data, dv, hm, hv)
         try:
             d, h = wrapped[("data", dv)], wrapped[("hmac", hv)]
         except KeyError as exc:
             raise VaultError("tenant key rows are missing for the current key versions") from exc
         return TenantKeys(
-            unwrap_key(self._kek, self.tenant_id, "data", dv, d.nonce, d.wrapped), dv,
-            unwrap_key(self._kek, self.tenant_id, "hmac", hv, h.nonce, h.wrapped), hv,
+            unwrap_tenant_key(self._key_provider, self.tenant_id, "data", dv, d.wrapped), dv,
+            unwrap_tenant_key(self._key_provider, self.tenant_id, "hmac", hv, h.wrapped), hv,
         )
 
     # ----- snapshot -----

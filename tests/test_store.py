@@ -30,10 +30,37 @@ def test_ensure_tenant_is_idempotent(store):
 def test_tenant_keys_round_trip(store):
     t = uuid4()
     store.ensure_tenant(t)
-    store.put_tenant_keys(t, [WrappedKey("data", 1, b"n" * 12, b"w1"), WrappedKey("hmac", 1, b"m" * 12, b"w2")])
+    store.put_tenant_keys(t, [WrappedKey("data", 1, b"w1"), WrappedKey("hmac", 1, b"w2")])
     got = {(k.kind, k.version): k.wrapped for k in store.get_tenant_keys(t)}
     assert got == {("data", 1): b"w1", ("hmac", 1): b"w2"}
     assert store.get_tenant_keys(uuid4()) == []
+
+
+def test_replace_tenant_keys_swaps_blobs_and_leaves_other_tenants_alone(store):
+    t, u = uuid4(), uuid4()
+    store.ensure_tenant(t)
+    store.ensure_tenant(u)
+    store.put_tenant_keys(t, [WrappedKey("data", 1, b"w1"), WrappedKey("hmac", 1, b"w2")])
+    store.put_tenant_keys(u, [WrappedKey("data", 1, b"u1"), WrappedKey("hmac", 1, b"u2")])
+    store.replace_tenant_keys(t, [WrappedKey("data", 1, b"n1"), WrappedKey("hmac", 1, b"n2")])
+    assert {(k.kind, k.version): k.wrapped for k in store.get_tenant_keys(t)} == {("data", 1): b"n1", ("hmac", 1): b"n2"}
+    assert {k.wrapped for k in store.get_tenant_keys(u)} == {b"u1", b"u2"}
+
+
+def test_replace_tenant_keys_with_nothing_clears_the_tenant(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    store.put_tenant_keys(t, [WrappedKey("data", 1, b"w1")])
+    store.replace_tenant_keys(t, [])
+    assert store.get_tenant_keys(t) == []
+
+
+def test_list_tenants(store):
+    assert store.list_tenants() == []
+    ids = {uuid4() for _ in range(3)}
+    for i in ids:
+        store.ensure_tenant(i)
+    assert set(store.list_tenants()) == ids and len(store.list_tenants()) == 3
 
 
 def test_put_assigns_increasing_seq_and_changes_since_orders_by_it(store):
