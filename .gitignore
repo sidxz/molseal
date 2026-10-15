@@ -11,5 +11,6 @@ bench/data/
 bench/results/
 .env
 
-# conversation logs kept for writing docs later; never committed
-talks/
+
+# internal discussion, plans, specs, reviews, handoffs, transcripts: never committed
+internal-docs/
