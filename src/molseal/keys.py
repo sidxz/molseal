@@ -99,6 +99,39 @@ class FileKeyProvider:
         return RawKeyProvider(self._read()).unwrap(label, blob)
 
 
+
+
+def provider_from_spec(spec: str) -> KeyProvider:
+    """One string names a provider: `PATH` or `file:PATH`; `aws:KEY_ID`; `gcp:KEY_NAME`;
+    `azure:https://<vault>.vault.azure.net/keys/<name>`; `infisical:BASE_URL/KEY_ID` with the bearer
+    token in MOLSEAL_INFISICAL_TOKEN. A path that contains ':' needs the `file:` prefix. The vendor
+    module is imported only for its own scheme."""
+    scheme, sep, rest = spec.partition(":")
+    if not sep:
+        return FileKeyProvider(Path(spec))
+    if scheme == "file":
+        return FileKeyProvider(Path(rest))
+    if not rest:
+        raise KeyProviderError(f"{scheme}: needs a key identifier after the colon")
+    if scheme == "aws":
+        from .providers.aws import AwsKmsKeyProvider
+        return AwsKmsKeyProvider(rest)
+    if scheme == "gcp":
+        from .providers.gcp import GcpKmsKeyProvider
+        return GcpKmsKeyProvider(rest)
+    if scheme == "azure":
+        from .providers.azure import AzureKeyVaultKeyProvider
+        return AzureKeyVaultKeyProvider(rest)
+    if scheme == "infisical":
+        from .providers.infisical import InfisicalKmsKeyProvider
+        base_url, _, key_id = rest.rpartition("/")
+        token = os.environ.get("MOLSEAL_INFISICAL_TOKEN", "")
+        if not base_url or not key_id or not token:
+            raise KeyProviderError("infisical spec is infisical:BASE_URL/KEY_ID with MOLSEAL_INFISICAL_TOKEN set")
+        return InfisicalKmsKeyProvider(base_url, key_id, token)
+    raise KeyProviderError(f"unknown key provider scheme {scheme!r}: use file:, aws:, gcp:, azure: or infisical:")
+
+
 @dataclass(frozen=True)
 class TenantKeys:
     data_key: bytes

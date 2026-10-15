@@ -1,6 +1,7 @@
 import os
 import stat
 import struct
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -96,3 +97,32 @@ def test_exact_key_hmac_is_deterministic_and_keyed():
     assert a != keys.exact_key_hmac(k1, "smiles", "ABC")
     assert a != keys.exact_key_hmac(k2, "inchikey", "ABC")
     assert keys.exact_key_hmac(k1, "ab", "c") != keys.exact_key_hmac(k1, "a", "bc")
+
+
+def test_provider_from_spec_parses_every_scheme(monkeypatch, tmp_path):
+    from molseal.providers.aws import AwsKmsKeyProvider
+    from molseal.providers.azure import AzureKeyVaultKeyProvider
+    from molseal.providers.gcp import GcpKmsKeyProvider
+    from molseal.providers.infisical import InfisicalKmsKeyProvider
+
+    p = tmp_path / "k.key"
+    bare = keys.provider_from_spec(str(p))
+    assert isinstance(bare, keys.FileKeyProvider) and bare.path == Path(str(p))
+    assert keys.provider_from_spec(f"file:{p}").path == Path(str(p))
+    assert keys.provider_from_spec("file:C:/keys/molseal.key").path == Path("C:/keys/molseal.key")
+    aws = keys.provider_from_spec("aws:alias/molseal")
+    assert isinstance(aws, AwsKmsKeyProvider) and aws.key_id == "alias/molseal"
+    gcp = keys.provider_from_spec("gcp:projects/p/locations/l/keyRings/r/cryptoKeys/k")
+    assert isinstance(gcp, GcpKmsKeyProvider) and gcp.key_name == "projects/p/locations/l/keyRings/r/cryptoKeys/k"
+    az = keys.provider_from_spec("azure:https://v.vault.azure.net/keys/molseal")
+    assert isinstance(az, AzureKeyVaultKeyProvider) and az.key_id == "https://v.vault.azure.net/keys/molseal"
+    monkeypatch.delenv("MOLSEAL_INFISICAL_TOKEN", raising=False)
+    with pytest.raises(keys.KeyProviderError, match="MOLSEAL_INFISICAL_TOKEN"):
+        keys.provider_from_spec("infisical:https://eu.infisical.com/4f1c")
+    monkeypatch.setenv("MOLSEAL_INFISICAL_TOKEN", "tok")
+    inf = keys.provider_from_spec("infisical:https://eu.infisical.com/4f1c")
+    assert isinstance(inf, InfisicalKmsKeyProvider)
+    assert (inf.base_url, inf.key_id, inf.token) == ("https://eu.infisical.com", "4f1c", "tok")
+    for bad in ("unknown:x", "aws:", "gcp:", "azure:", "infisical:", "infisical:nokey"):
+        with pytest.raises(keys.KeyProviderError):
+            keys.provider_from_spec(bad)

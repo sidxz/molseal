@@ -23,22 +23,24 @@ import sqlalchemy as sa
 from rdkit import Chem, RDLogger
 from sqlalchemy import delete, func, insert, select
 
-from .keys import FileKeyProvider, generate_key_file
+from .keys import KeyProviderError, generate_key_file, new_tenant_secret, provider_from_spec, unwrap_tenant_key, wrap_tenant_key
 from .store import SqlStore, structure_keys, structures, tenant_keys
-from .vault import Vault
+from .vault import Vault, VaultError, rewrap_tenant
 
 RDLogger.DisableLog("rdApp.*")
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--db", default=os.environ.get("MOLSEAL_DATABASE_URL", ""), help="SQLAlchemy URL [env MOLSEAL_DATABASE_URL]")
-    p.add_argument("--key", default=os.environ.get("MOLSEAL_KEY_FILE", ""), help="KEK file [env MOLSEAL_KEY_FILE]")
+    p.add_argument("--key", default=os.environ.get("MOLSEAL_KEY", ""),
+                   help="key provider: PATH | file:PATH | aws:KEY_ID | gcp:KEY_NAME | azure:KEY_URL | "
+                        "infisical:BASE_URL/KEY_ID [env MOLSEAL_KEY]")
     p.add_argument("--tenant", default=os.environ.get("MOLSEAL_TENANT", ""), help="tenant UUID [env MOLSEAL_TENANT]")
     p.add_argument("--snapshot-dir", default=os.environ.get("MOLSEAL_SNAPSHOT_DIR"), help="[env MOLSEAL_SNAPSHOT_DIR]")
 
 
-def _require(args: argparse.Namespace) -> None:
-    missing = [f"--{n}" for n in ("db", "key", "tenant") if not getattr(args, n)]
+def _require(args: argparse.Namespace, names: tuple[str, ...] = ("db", "key", "tenant")) -> None:
+    missing = [f"--{n}" for n in names if not getattr(args, n)]
     if missing:
         raise SystemExit(f"required: {' '.join(missing)} (or their MOLSEAL_* environment variables)")
 
@@ -50,10 +52,17 @@ def _store(args: argparse.Namespace) -> tuple[SqlStore, uuid.UUID]:
     return store, uuid.UUID(args.tenant)
 
 
+def _provider(spec: str):
+    try:
+        return provider_from_spec(spec)
+    except KeyProviderError as exc:
+        raise SystemExit(str(exc)) from exc        # a usage error: exit 2 like a missing option
+
+
 def _vault(args: argparse.Namespace) -> Vault:
     store, tenant = _store(args)
     snap = Path(args.snapshot_dir) if args.snapshot_dir else None
-    return Vault(store, FileKeyProvider(Path(args.key)), tenant, snapshot_dir=snap)
+    return Vault(store, _provider(args.key), tenant, snapshot_dir=snap)
 
 
 def cmd_keygen(args: argparse.Namespace) -> int:
@@ -63,6 +72,47 @@ def cmd_keygen(args: argparse.Namespace) -> int:
         print(f"refusing to overwrite {args.path}", file=sys.stderr)
         return 1
     print(f"wrote {args.path} (mode 600)")
+    return 0
+
+
+def cmd_rewrap(args: argparse.Namespace) -> int:
+    """Re-wrap tenant keys: --key is the old provider, --to the new one."""
+    _require(args, ("db", "key") if args.all else ("db", "key", "tenant"))
+    old, new = _provider(args.key), _provider(args.to)
+    store = SqlStore(sa.create_engine(args.db))
+    store.create_tables()
+    targets = store.list_tenants() if args.all else [uuid.UUID(args.tenant)]
+    for t in targets:
+        try:
+            n = rewrap_tenant(store, t, old, new)
+        except (KeyProviderError, VaultError) as exc:
+            print(f"{t}: {exc}", file=sys.stderr)
+            return 1
+        print(f"{t}: rewrapped {n} key rows")
+    return 0
+
+
+def cmd_key_check(args: argparse.Namespace) -> int:
+    """Wrap and unwrap a throwaway secret through --key; a wrong version and a flipped byte must fail."""
+    _require(args, ("key",))
+    provider = _provider(args.key)
+    name = type(provider).__name__
+    t, secret = uuid.uuid4(), new_tenant_secret()
+    try:
+        blob = wrap_tenant_key(provider, t, "data", 1, secret)
+        if unwrap_tenant_key(provider, t, "data", 1, blob) != secret:
+            raise KeyProviderError("round trip returned different bytes")
+    except KeyProviderError as exc:
+        print(f"{name}: {exc}", file=sys.stderr)
+        return 1
+    for what, version, b in (("wrong version", 2, blob), ("flipped byte", 1, bytes([blob[0] ^ 1]) + blob[1:])):
+        try:
+            unwrap_tenant_key(provider, t, "data", version, b)
+        except KeyProviderError:
+            continue
+        print(f"{name}: unwrap with a {what} did not fail", file=sys.stderr)
+        return 1
+    print(f"{name}: ok")
     return 0
 
 
@@ -286,6 +336,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(a)
     a.set_defaults(fn=cmd_absence_check)
 
+    w = sub.add_parser("rewrap", help="re-wrap tenant keys under another provider (KEK rotation or migration)")
+    w.add_argument("--to", required=True, help="new key provider spec; --key is the old one")
+    w.add_argument("--all", action="store_true", help="every tenant in the database instead of --tenant")
+    _add_common(w)
+    w.set_defaults(fn=cmd_rewrap)
+
+    kc = sub.add_parser("key-check", help="wrap and unwrap a throwaway secret through --key")
+    _add_common(kc)
+    kc.set_defaults(fn=cmd_key_check)
+
     r = sub.add_parser("leak-report", help="how much ciphertext size class says about molecule size")
     r.add_argument("sidecar")
     _add_common(r)
@@ -297,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return int(args.fn(args))
+    except KeyProviderError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except SystemExit as exc:          # _require() raises with a message; argparse raises with an int
         if isinstance(exc.code, str):
             print(exc.code, file=sys.stderr)

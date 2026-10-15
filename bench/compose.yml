@@ -40,7 +40,7 @@ services:
     environment:
       MOLSEAL_DATABASE_URL: postgresql+psycopg://molseal:molseal@molseal-db:5432/molseal
       MOLSEAL_CARTRIDGE_URL: postgresql+psycopg://bench:bench@cartridge-db:5432/bench
-      MOLSEAL_KEY_FILE: /app/bench/results/bench.key
+      MOLSEAL_KEY: /app/bench/results/bench.key
       MOLSEAL_SNAPSHOT_DIR: /app/bench/data/snap
     volumes:
       - ./data:/app/bench/data

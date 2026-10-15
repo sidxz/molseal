@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--chunk", type=int, default=10_000)
     p.add_argument("--snapshot-dir", default=os.environ.get("MOLSEAL_SNAPSHOT_DIR"))
     p.add_argument("--db", default=os.environ.get("MOLSEAL_DATABASE_URL", ""))
-    p.add_argument("--key", default=os.environ.get("MOLSEAL_KEY_FILE", ""))
+    p.add_argument("--key", default=os.environ.get("MOLSEAL_KEY", ""))
     p.add_argument("--tenant", default=os.environ.get("MOLSEAL_TENANT", ""))
     p.add_argument("--results", default="bench/results")
     a = p.parse_args(argv)

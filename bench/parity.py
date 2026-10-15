@@ -239,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--n", required=True)
     p.add_argument("--cartridge-url", default=os.environ.get("MOLSEAL_CARTRIDGE_URL", CARTRIDGE_URL))
     p.add_argument("--db", default=os.environ.get("MOLSEAL_DATABASE_URL", ""))
-    p.add_argument("--key", default=os.environ.get("MOLSEAL_KEY_FILE", ""))
+    p.add_argument("--key", default=os.environ.get("MOLSEAL_KEY", ""))
     p.add_argument("--tenant", default=os.environ.get("MOLSEAL_TENANT", ""))
     p.add_argument("--snapshot-dir", default=os.environ.get("MOLSEAL_SNAPSHOT_DIR"))
     p.add_argument("--seed", type=int, default=20261013)

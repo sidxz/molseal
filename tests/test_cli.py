@@ -50,7 +50,7 @@ def test_load_search_count_similar(ctx, capsys):
 
 
 def test_missing_connection_options_fail_cleanly(monkeypatch, capsys):
-    for var in ("MOLSEAL_DATABASE_URL", "MOLSEAL_KEY_FILE", "MOLSEAL_TENANT"):
+    for var in ("MOLSEAL_DATABASE_URL", "MOLSEAL_KEY", "MOLSEAL_TENANT"):
         monkeypatch.delenv(var, raising=False)
     assert cli.main(["count", "CCO"]) == 2
     assert "--db" in capsys.readouterr().err
@@ -138,3 +138,65 @@ def test_leak_report_prints_numbers(ctx, capsys):
     assert cli.main(["leak-report", str(sidecar), *common]) == 0
     out = capsys.readouterr().out
     assert '"pearson_r"' in out and '"predict_accuracy"' in out and '"n": 30' in out
+
+
+def _with(common, flag, value):
+    out = [*common]
+    out[out.index(flag) + 1] = value
+    return out
+
+
+def test_rewrap_moves_a_tenant_to_a_new_key(ctx, capsys, tmp_path):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    capsys.readouterr()
+    new = tmp_path / "new.key"
+    assert cli.main(["keygen", str(new)]) == 0
+    assert cli.main(["rewrap", "--to", str(new), *common]) == 0
+    assert "rewrapped 2 key rows" in capsys.readouterr().out
+    assert cli.main(["count", "c1ccccc1", *_with(common, "--key", str(new))]) == 0
+    assert int(capsys.readouterr().out.strip()) > 0
+    assert cli.main(["count", "c1ccccc1", *common]) == 1          # the old key no longer opens the tenant
+    assert "did not open" in capsys.readouterr().err
+
+
+def test_rewrap_all_covers_every_tenant(ctx, capsys, tmp_path):
+    common, src = ctx
+    second = _with(common, "--tenant", str(uuid.uuid4()))
+    assert cli.main(["load", str(src), *common]) == 0
+    assert cli.main(["load", str(src), *second]) == 0
+    capsys.readouterr()
+    new = tmp_path / "new.key"
+    assert cli.main(["keygen", str(new)]) == 0
+    assert cli.main(["rewrap", "--to", str(new), "--all", *common]) == 0
+    assert capsys.readouterr().out.count("rewrapped 2 key rows") == 2
+    assert cli.main(["count", "c1ccccc1", *_with(second, "--key", str(new))]) == 0
+
+
+def test_rewrap_all_on_an_empty_database_is_a_no_op(ctx, capsys, tmp_path):
+    common, _ = ctx
+    no_tenant = [a for i, a in enumerate(common) if a != "--tenant" and common[i - 1] != "--tenant"]
+    assert cli.main(["rewrap", "--to", common[common.index("--key") + 1], "--all", *no_tenant]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_rewrap_to_a_bad_provider_fails_and_keeps_the_old_key_working(ctx, capsys, tmp_path):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    capsys.readouterr()
+    bad = tmp_path / "bad.key"
+    bad.write_bytes(b"short")
+    bad.chmod(0o600)
+    assert cli.main(["rewrap", "--to", str(bad), *common]) == 1
+    assert "32 bytes" in capsys.readouterr().err
+    assert cli.main(["count", "c1ccccc1", *common]) == 0
+
+
+def test_key_check_passes_for_a_file_and_rejects_an_unknown_scheme(ctx, capsys, tmp_path):
+    common, _ = ctx
+    assert cli.main(["key-check", *common]) == 0
+    assert capsys.readouterr().out.strip() == "FileKeyProvider: ok"
+    assert cli.main(["key-check", *_with(common, "--key", "unknown:x")]) == 2
+    assert "unknown" in capsys.readouterr().err
+    assert cli.main(["key-check", "--key", str(tmp_path / "missing.key")]) == 1
+    assert "does not exist" in capsys.readouterr().err

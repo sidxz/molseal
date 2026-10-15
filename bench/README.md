@@ -45,9 +45,9 @@ resume with a different `--chunk`. One tenant per N (`bench/results/tenant_<N>.t
 
     uv run python -m bench.load_cartridge --slice bench/data/slice_500000.tsv
     export MOLSEAL_DATABASE_URL=postgresql+psycopg://molseal:molseal@localhost:5441/molseal
-    export MOLSEAL_KEY_FILE=bench/results/bench.key MOLSEAL_SNAPSHOT_DIR=bench/data/snap
+    export MOLSEAL_KEY=bench/results/bench.key MOLSEAL_SNAPSHOT_DIR=bench/data/snap
     export MOLSEAL_TENANT=$(python3 -c 'import uuid; print(uuid.uuid4())')
-    uv run molseal keygen "$MOLSEAL_KEY_FILE"      # once
+    uv run molseal keygen "$MOLSEAL_KEY"      # once
     uv run python -m bench.load_molseal --slice bench/data/slice_500000.tsv
 
 Keep the same `MOLSEAL_TENANT` for every later step (the driver keeps it in `tenant_<N>.txt`).
