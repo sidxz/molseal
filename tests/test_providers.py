@@ -7,6 +7,7 @@ base64 over the two Infisical URLs. No vendor SDK is installed or imported."""
 import base64
 import builtins
 import os
+import struct
 from uuid import uuid4
 
 import pytest
@@ -266,6 +267,29 @@ def test_infisical_bad_response_is_a_provider_error(tmp_path):
         assert info.value.__cause__ is not None
 
 
+def _azure_blob(kid: str, encrypted: bytes) -> bytes:
+    return struct.pack(">H", len(kid.encode())) + kid.encode() + encrypted
+
+
+def test_azure_rejects_a_blob_that_names_another_key(tmp_path):
+    p, fake = _make("azure", tmp_path)
+    t, secret = uuid4(), keys.new_tenant_secret()
+    blob = keys.wrap_tenant_key(p, t, "data", 1, secret)
+    (n,) = struct.unpack(">H", blob[:2])
+    encrypted = blob[2 + n:]
+    v = "0123456789abcdef0123456789abcdef"
+    asked = list(fake.asked)
+    for kid in (f"https://evil.example/keys/molseal/{v}",
+                f"https://v.vault.azure.net/keys/other/{v}",
+                f"http://v.vault.azure.net/keys/molseal/{v}",
+                "https://v.vault.azure.net/keys/molseal",
+                "https://v.vault.azure.net/keys/molseal/zz23456789abcdef0123456789abcdef"):
+        with pytest.raises(keys.KeyProviderError):
+            keys.unwrap_tenant_key(p, t, "data", 1, _azure_blob(kid, encrypted))
+        assert fake.asked == asked
+    assert keys.unwrap_tenant_key(p, t, "data", 1, blob) == secret
+
+
 def test_missing_sdk_is_reported_with_the_extra_to_install(monkeypatch):
     real = builtins.__import__
 
@@ -281,4 +305,4 @@ def test_missing_sdk_is_reported_with_the_extra_to_install(monkeypatch):
         with pytest.raises(keys.KeyProviderError, match=rf"molseal\[{extra}\]"):
             p.wrap(b"l", b"p")
         with pytest.raises(keys.KeyProviderError, match=rf"molseal\[{extra}\]"):
-            p.unwrap(b"l", b"\x00\x05abcde" + b"x" * 20)
+            p.unwrap(b"l", _azure_blob("https://v.vault.azure.net/keys/k/" + "0" * 32, b"x" * 20))
