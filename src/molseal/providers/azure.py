@@ -4,6 +4,7 @@ The service takes no associated data; `molseal.keys` binds the label inside the 
 result's key id is the versioned id, and it is stored in the blob so unwrap addresses that exact
 version after the key has been rotated in Key Vault. The stored id must be a version of the
 configured key (same host, same key name); anything else is rejected before any client is built.
+The identity needs `get`, `wrapKey` and `unwrapKey` (or a versioned key id when `get` is not granted).
 Extra: `pip install molseal[azure]` (azure-keyvault-keys, azure-identity)."""
 
 from __future__ import annotations
@@ -28,33 +29,37 @@ class AzureKeyVaultKeyProvider:
     credential: Any = None                               # default azure.identity.DefaultAzureCredential()
     client_factory: Callable[[str], Any] | None = None   # key id -> CryptographyClient-like; tests inject
 
-    def _client(self, key_id: str) -> Any:
+    def _client(self, key_id: str) -> tuple[Any, Any]:
         if self.client_factory is not None:
-            return self.client_factory(key_id)
+            return self.client_factory(key_id), ALGORITHM
         try:
             from azure.identity import DefaultAzureCredential
-            from azure.keyvault.keys.crypto import CryptographyClient
+            from azure.keyvault.keys.crypto import CryptographyClient, KeyWrapAlgorithm
         except ImportError as exc:
             raise KeyProviderError("Azure Key Vault provider needs azure-keyvault-keys and azure-identity: "
                                    "pip install molseal[azure]") from exc
-        return CryptographyClient(key_id, self.credential or DefaultAzureCredential())
+        return CryptographyClient(key_id, self.credential or DefaultAzureCredential()), KeyWrapAlgorithm.rsa_oaep_256
 
-    def _check_key_id(self, kid: str) -> None:
+    def _key_id_ok(self, kid: str) -> bool:
         base, k = urlsplit(self.key_id), urlsplit(kid)
         parts = base.path.rstrip("/").split("/")          # ['', 'keys', name] or ['', 'keys', name, version]
         name = parts[2] if len(parts) >= 3 and parts[1] == "keys" else ""
         kparts = k.path.rstrip("/").split("/")
-        ok = (k.scheme == "https" and k.hostname is not None and k.hostname == base.hostname
-              and name and len(kparts) == 4 and kparts[1] == "keys" and kparts[2] == name
-              and _VERSION.match(kparts[3]) is not None)
-        if not ok:
-            raise KeyProviderError("Azure wrapped key blob names a key id outside the configured key")
+        return bool(k.scheme == "https" and k.netloc and k.netloc.lower() == base.netloc.lower()
+                    and not k.query and not k.fragment
+                    and name and len(kparts) == 4 and kparts[1] == "keys" and kparts[2].lower() == name.lower()
+                    and _VERSION.match(kparts[3]) is not None)
 
     def wrap(self, label: bytes, plaintext: bytes) -> bytes:
         try:
-            r = self._client(self.key_id).wrap_key(ALGORITHM, plaintext)
-            kid = str(r.key_id).encode("utf-8")
-            return struct.pack(">H", len(kid)) + kid + bytes(r.encrypted_key)
+            client, alg = self._client(self.key_id)
+            r = client.wrap_key(alg, plaintext)
+            kid = str(r.key_id)
+            if not self._key_id_ok(kid):
+                raise KeyProviderError(f"Key Vault returned key id {kid!r}, which is not a versioned id of the "
+                                       "configured key; grant the identity keys/get or configure a versioned key id")
+            kb = kid.encode("utf-8")
+            return struct.pack(">H", len(kb)) + kb + bytes(r.encrypted_key)
         except KeyProviderError:
             raise
         except Exception as exc:
@@ -68,8 +73,10 @@ class AzureKeyVaultKeyProvider:
             if len(blob) < 2 + n:
                 raise KeyProviderError("Azure wrapped key blob is truncated")
             kid, encrypted = blob[2:2 + n].decode("utf-8"), blob[2 + n:]
-            self._check_key_id(kid)
-            return bytes(self._client(kid).unwrap_key(ALGORITHM, encrypted).key)
+            if not self._key_id_ok(kid):
+                raise KeyProviderError("Azure wrapped key blob names a key id outside the configured key")
+            client, alg = self._client(kid)
+            return bytes(client.unwrap_key(alg, encrypted).key)
         except KeyProviderError:
             raise
         except Exception as exc:

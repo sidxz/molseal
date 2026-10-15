@@ -99,6 +99,11 @@ def test_exact_key_hmac_is_deterministic_and_keyed():
     assert keys.exact_key_hmac(k1, "ab", "c") != keys.exact_key_hmac(k1, "a", "bc")
 
 
+def test_a_directory_as_key_path_is_a_key_file_error(tmp_path):
+    with pytest.raises(keys.KeyFileError):
+        keys.FileKeyProvider(tmp_path).wrap(b"l", b"x" * 59)
+
+
 def test_provider_from_spec_parses_every_scheme(monkeypatch, tmp_path):
     from molseal.providers.aws import AwsKmsKeyProvider
     from molseal.providers.azure import AzureKeyVaultKeyProvider
@@ -123,6 +128,7 @@ def test_provider_from_spec_parses_every_scheme(monkeypatch, tmp_path):
     inf = keys.provider_from_spec("infisical:https://eu.infisical.com/4f1c")
     assert isinstance(inf, InfisicalKmsKeyProvider)
     assert (inf.base_url, inf.key_id, inf.token) == ("https://eu.infisical.com", "4f1c", "tok")
-    for bad in ("unknown:x", "aws:", "gcp:", "azure:", "infisical:", "infisical:nokey"):
+    for bad in ("unknown:x", "aws:", "gcp:", "azure:", "infisical:", "infisical:nokey",
+                "infisical:http://kms.example/k"):
         with pytest.raises(keys.KeyProviderError):
             keys.provider_from_spec(bad)

@@ -14,12 +14,12 @@ import hmac
 import os
 import stat
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
-from .crypto import NONCE_LEN, SealError, key_aad, open_sealed, seal
+from .crypto import NONCE_LEN, TAG_LEN, SealError, key_aad, open_sealed, seal
 
 KEY_LEN = 32
 
@@ -54,7 +54,7 @@ class RawKeyProvider:
     """AES-256-GCM in process, label as associated data. For a KEK held in config or fetched from a
     secrets manager by the application's own client."""
 
-    kek: bytes
+    kek: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
         if len(self.kek) != KEY_LEN:
@@ -65,7 +65,7 @@ class RawKeyProvider:
         return nonce + ct
 
     def unwrap(self, label: bytes, blob: bytes) -> bytes:
-        if len(blob) < NONCE_LEN + 16:
+        if len(blob) < NONCE_LEN + TAG_LEN:
             raise KeyProviderError("wrapped key blob is too short")
         try:
             return open_sealed(self.kek, blob[:NONCE_LEN], blob[NONCE_LEN:], label)
@@ -85,9 +85,14 @@ class FileKeyProvider:
             mode = stat.S_IMODE(p.stat().st_mode)
         except FileNotFoundError as exc:
             raise KeyFileError(f"{p} does not exist") from exc
+        except OSError as exc:
+            raise KeyFileError(f"{p}: {exc}") from exc
         if mode & 0o077:
             raise KeyFileError(f"{p} is readable by group or others (mode {mode:o}); chmod 600 it")
-        data = p.read_bytes()
+        try:
+            data = p.read_bytes()
+        except OSError as exc:
+            raise KeyFileError(f"{p}: {exc}") from exc
         if len(data) != KEY_LEN:
             raise KeyFileError(f"{p} must hold exactly {KEY_LEN} bytes, has {len(data)}")
         return data
@@ -97,8 +102,6 @@ class FileKeyProvider:
 
     def unwrap(self, label: bytes, blob: bytes) -> bytes:
         return RawKeyProvider(self._read()).unwrap(label, blob)
-
-
 
 
 def provider_from_spec(spec: str) -> KeyProvider:

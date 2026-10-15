@@ -98,6 +98,7 @@ class FakeAzureVault:
     def __init__(self):
         self.private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         self.down = False
+        self.echo_configured_id = False      # what the real client returns when keys/get is forbidden
         self.asked: list[str] = []
 
     def _check(self, algorithm, key_id, allowed):
@@ -105,7 +106,7 @@ class FakeAzureVault:
             raise ServiceError("service unavailable")
         if algorithm != "RSA-OAEP-256":
             raise ServiceError(f"unsupported algorithm {algorithm}")
-        if key_id not in allowed:
+        if key_id.lower() not in [a.lower() for a in allowed]:
             raise ServiceError(f"key {key_id} not found")
 
     def client(self, key_id):
@@ -115,7 +116,7 @@ class FakeAzureVault:
         class Client:
             def wrap_key(self, algorithm, key):
                 vault._check(algorithm, key_id, (vault.UNVERSIONED, vault.VERSIONED))
-                return _Obj(key_id=vault.VERSIONED, algorithm=algorithm,
+                return _Obj(key_id=key_id if vault.echo_configured_id else vault.VERSIONED, algorithm=algorithm,
                             encrypted_key=vault.private.public_key().encrypt(key, _OAEP))
 
             def unwrap_key(self, algorithm, encrypted_key):
@@ -283,11 +284,36 @@ def test_azure_rejects_a_blob_that_names_another_key(tmp_path):
                 f"https://v.vault.azure.net/keys/other/{v}",
                 f"http://v.vault.azure.net/keys/molseal/{v}",
                 "https://v.vault.azure.net/keys/molseal",
-                "https://v.vault.azure.net/keys/molseal/zz23456789abcdef0123456789abcdef"):
+                "https://v.vault.azure.net/keys/molseal/zz23456789abcdef0123456789abcdef",
+                f"https://v.vault.azure.net:8443/keys/molseal/{v}",
+                f"https://evil@v.vault.azure.net/keys/molseal/{v}",
+                f"https://v.vault.azure.net/keys/molseal/{v}?x=1"):
         with pytest.raises(keys.KeyProviderError):
             keys.unwrap_tenant_key(p, t, "data", 1, _azure_blob(kid, encrypted))
         assert fake.asked == asked
     assert keys.unwrap_tenant_key(p, t, "data", 1, blob) == secret
+    upper = _azure_blob(f"https://v.vault.azure.net/keys/MOLSEAL/{v}", encrypted)
+    assert keys.unwrap_tenant_key(p, t, "data", 1, upper) == secret
+
+
+def test_azure_wrap_refuses_an_unversioned_key_id(tmp_path):
+    p, fake = _make("azure", tmp_path)
+    fake.echo_configured_id = True
+    with pytest.raises(keys.KeyProviderError, match="keys/get"):
+        p.wrap(b"l", b"x" * 59)
+
+
+def test_secrets_stay_out_of_repr():
+    r = repr(keys.RawKeyProvider(b"\xa5" * 32))
+    assert "a5" not in r and "\\xa5" not in r
+    assert "SECRET-TOKEN" not in repr(InfisicalKmsKeyProvider("https://eu.infisical.com", "k", "SECRET-TOKEN"))
+
+
+def test_infisical_requires_https_except_for_loopback():
+    with pytest.raises(keys.KeyProviderError, match="https"):
+        InfisicalKmsKeyProvider("http://kms.example", "k", "t")
+    InfisicalKmsKeyProvider("http://localhost:8080", "k", "t")
+    InfisicalKmsKeyProvider("https://kms.example", "k", "t")
 
 
 def test_missing_sdk_is_reported_with_the_extra_to_install(monkeypatch):

@@ -14,7 +14,8 @@ import base64
 import json
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from ..keys import KeyProviderError
 
@@ -23,8 +24,14 @@ from ..keys import KeyProviderError
 class InfisicalKmsKeyProvider:
     base_url: str               # https://eu.infisical.com, https://us.infisical.com, or a self-hosted origin
     key_id: str                 # KMS key UUID (an encrypt/decrypt key)
-    token: str                  # bearer token
+    token: str = field(repr=False)   # bearer token
     post: Callable[[str, dict], dict] | None = None   # (url, json body) -> json response; tests inject
+
+    def __post_init__(self) -> None:
+        u = urlsplit(self.base_url)
+        if u.scheme != "https" and u.hostname not in ("localhost", "127.0.0.1", "::1"):
+            raise KeyProviderError("Infisical base_url must use https (the bearer token unwraps every tenant key); "
+                                   "http is allowed only for a loopback host")
 
     def _post(self, url: str, body: dict) -> dict:
         if self.post is not None:

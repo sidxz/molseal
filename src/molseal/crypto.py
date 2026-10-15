@@ -13,6 +13,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 NONCE_LEN = 12
+TAG_LEN = 16
 MIN_SIZE_CLASS = 256
 CHUNK_SIZE = 64 * 1024 * 1024
 
