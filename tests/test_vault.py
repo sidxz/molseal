@@ -7,7 +7,7 @@ from sqlalchemy import delete, update
 from molseal import engine, keys
 from molseal.payload import Payload
 from molseal.store import SqlStore, StructureRecord, VersionConflict, structure_keys, structures, tenant_keys, tenants
-from molseal.vault import NotFound, Vault, VaultError
+from molseal.vault import NotFound, Vault, VaultError, rewrap_tenant
 
 
 @pytest.fixture
@@ -338,3 +338,55 @@ def test_substructure_options_pass_through(vault):
     assert set(vault.substructure("C[C@H](N)C(=O)O")) == {l_ala, d_ala}
     block = engine.Chem.MolToMolBlock(engine.Chem.MolFromSmiles("Oc1ccccn1"))
     assert vault.substructure(block, kind="molblock") == [enol]
+
+
+def test_rewrap_moves_a_tenant_to_a_new_provider(env, tmp_path):
+    store, kp, _ = env
+    t, i = uuid4(), uuid4()
+    Vault(store, kp, t).put(i, "CCO")
+    before = [k.wrapped for k in store.get_tenant_keys(t)]
+    other = tmp_path / "other.key"
+    keys.generate_key_file(other)
+    new = keys.FileKeyProvider(other)
+    assert rewrap_tenant(store, t, kp, new) == 2
+    assert [k.wrapped for k in store.get_tenant_keys(t)] != before
+    assert Vault(store, new, t).get(i).smiles == "CCO"
+    with pytest.raises(keys.KeyProviderError):
+        Vault(store, kp, t)
+
+
+def test_rewrap_with_a_broken_new_provider_changes_nothing(env):
+    store, kp, _ = env
+    t = uuid4()
+    Vault(store, kp, t).put(uuid4(), "CCO")
+    before = store.get_tenant_keys(t)
+
+    class Broken:
+        def wrap(self, label, plaintext):
+            return b"not a blob"
+
+        def unwrap(self, label, blob):
+            raise keys.KeyProviderError("service down")
+
+    with pytest.raises(keys.KeyProviderError):
+        rewrap_tenant(store, t, kp, Broken())
+    assert store.get_tenant_keys(t) == before
+
+
+def test_rewrap_under_the_same_provider_refreshes_blobs_and_an_open_vault_keeps_working(env):
+    store, kp, snap = env
+    t, a, b = uuid4(), uuid4(), uuid4()
+    v = Vault(store, kp, t, snapshot_dir=snap)
+    v.put(a, "CCO")
+    before = [k.wrapped for k in store.get_tenant_keys(t)]
+    assert rewrap_tenant(store, t, kp, kp) == 2
+    assert [k.wrapped for k in store.get_tenant_keys(t)] != before
+    v.put(b, "CCN")                                   # the open vault holds the unwrapped keys
+    assert set(v.substructure("[CX4]", kind="smarts")) == {a, b}
+    assert Vault(store, kp, t).get(b).smiles == "CCN"
+
+
+def test_rewrap_refuses_a_tenant_without_key_rows(env):
+    store, kp, _ = env
+    with pytest.raises(VaultError):
+        rewrap_tenant(store, uuid4(), kp, kp)

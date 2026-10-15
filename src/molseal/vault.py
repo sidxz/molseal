@@ -23,7 +23,8 @@ from . import snapshot
 from .crypto import open_sealed, pad, row_aad, seal, unpad
 from .engine import DEFAULT_FAMILIES, FingerprintSpec, QueryKind, StructureIndex, canonicalize
 from .metrics import Metric, tanimoto
-from .keys import KeyProvider, TenantKeys, exact_key_hmac, new_tenant_secret, unwrap_tenant_key, wrap_tenant_key
+from .keys import (KeyProvider, KeyProviderError, TenantKeys, exact_key_hmac, new_tenant_secret,
+                   unwrap_tenant_key, wrap_tenant_key)
 from .payload import Payload, decode, encode
 from .snapshot import SnapshotFormatError
 from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
@@ -303,3 +304,23 @@ class Vault:
         fresh = StructureIndex(self.families)          # built aside, then swapped in
         self._catch_up(fresh, upto)
         self.index = fresh
+
+
+def rewrap_tenant(store: StructureStore, tenant_id: UUID, old: KeyProvider, new: KeyProvider) -> int:
+    """Re-wrap every key row of the tenant under `new` (KEK rotation, or moving to a key service).
+
+    Each new blob is unwrapped and compared with the secret before anything is written, and the rows
+    are replaced in one transaction, so a misconfigured `new` changes nothing. Vaults that are already
+    open keep working: they hold the unwrapped tenant keys. Returns the number of rows rewritten."""
+    rows = store.get_tenant_keys(tenant_id)
+    if not rows:
+        raise VaultError(f"tenant {tenant_id} has no key rows")
+    out = []
+    for k in rows:
+        secret = unwrap_tenant_key(old, tenant_id, k.kind, k.version, k.wrapped)
+        blob = wrap_tenant_key(new, tenant_id, k.kind, k.version, secret)
+        if unwrap_tenant_key(new, tenant_id, k.kind, k.version, blob) != secret:
+            raise KeyProviderError(f"new provider does not round-trip {k.kind} v{k.version}")
+        out.append(WrappedKey(k.kind, k.version, blob))
+    store.replace_tenant_keys(tenant_id, out)
+    return len(out)
