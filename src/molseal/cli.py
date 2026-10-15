@@ -30,7 +30,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--db", default=os.environ.get("MOLSEAL_DATABASE_URL", ""), help="SQLAlchemy URL [env MOLSEAL_DATABASE_URL]")
     p.add_argument("--key", default=os.environ.get("MOLSEAL_KEY", ""),
                    help="key provider: PATH | file:PATH | aws:KEY_ID | gcp:KEY_NAME | azure:KEY_URL | "
-                        "infisical:BASE_URL/KEY_ID [env MOLSEAL_KEY]")
+                        "infisical:BASE_URL/KEY_ID | vault:BASE_URL/MOUNT/KEY [env MOLSEAL_KEY]")
     p.add_argument("--tenant", default=os.environ.get("MOLSEAL_TENANT", ""), help="tenant UUID [env MOLSEAL_TENANT]")
     p.add_argument("--snapshot-dir", default=os.environ.get("MOLSEAL_SNAPSHOT_DIR"), help="[env MOLSEAL_SNAPSHOT_DIR]")
 

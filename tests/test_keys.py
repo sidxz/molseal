@@ -132,3 +132,24 @@ def test_provider_from_spec_parses_every_scheme(monkeypatch, tmp_path):
                 "infisical:http://kms.example/k"):
         with pytest.raises(keys.KeyProviderError):
             keys.provider_from_spec(bad)
+
+
+def test_provider_from_spec_parses_vault_transit(monkeypatch):
+    from molseal.providers.vault import VaultTransitKeyProvider
+
+    for var in ("MOLSEAL_VAULT_TOKEN", "VAULT_TOKEN", "MOLSEAL_VAULT_NAMESPACE"):
+        monkeypatch.delenv(var, raising=False)
+    with pytest.raises(keys.KeyProviderError, match="MOLSEAL_VAULT_TOKEN"):
+        keys.provider_from_spec("vault:https://vault.example.com:8200/transit/molseal")
+    monkeypatch.setenv("VAULT_TOKEN", "from-vault-login")          # the Vault CLI's own variable works too
+    v = keys.provider_from_spec("vault:https://vault.example.com:8200/transit/molseal")
+    assert isinstance(v, VaultTransitKeyProvider)
+    assert (v.base_url, v.mount, v.key_name, v.token, v.namespace) == (
+        "https://vault.example.com:8200", "transit", "molseal", "from-vault-login", None)
+    monkeypatch.setenv("MOLSEAL_VAULT_TOKEN", "molseal-specific")  # and takes precedence
+    monkeypatch.setenv("MOLSEAL_VAULT_NAMESPACE", "admin")
+    v = keys.provider_from_spec("vault:https://vault.example.com/transit-prod/molseal")
+    assert (v.mount, v.token, v.namespace) == ("transit-prod", "molseal-specific", "admin")
+    for bad in ("vault:", "vault:https://vault.example.com/molseal", "vault:http://vault.example.com/transit/k"):
+        with pytest.raises(keys.KeyProviderError):
+            keys.provider_from_spec(bad)

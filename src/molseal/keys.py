@@ -17,6 +17,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from .crypto import NONCE_LEN, TAG_LEN, SealError, key_aad, open_sealed, seal
@@ -108,8 +109,9 @@ class FileKeyProvider:
 def provider_from_spec(spec: str) -> KeyProvider:
     """One string names a provider: `PATH` or `file:PATH`; `aws:KEY_ID`; `gcp:KEY_NAME`;
     `azure:https://<vault>.vault.azure.net/keys/<name>`; `infisical:BASE_URL/KEY_ID` with the bearer
-    token in MOLSEAL_INFISICAL_TOKEN. A path that contains ':' needs the `file:` prefix. The vendor
-    module is imported only for its own scheme."""
+    token in MOLSEAL_INFISICAL_TOKEN; `vault:BASE_URL/MOUNT/KEY_NAME` with the token in
+    MOLSEAL_VAULT_TOKEN or VAULT_TOKEN and an optional MOLSEAL_VAULT_NAMESPACE. A path that contains
+    ':' needs the `file:` prefix. The vendor module is imported only for its own scheme."""
     scheme, sep, rest = spec.partition(":")
     if not sep:
         return FileKeyProvider(Path(spec))
@@ -133,7 +135,16 @@ def provider_from_spec(spec: str) -> KeyProvider:
         if not base_url or not key_id or not token:
             raise KeyProviderError("infisical spec is infisical:BASE_URL/KEY_ID with MOLSEAL_INFISICAL_TOKEN set")
         return InfisicalKmsKeyProvider(base_url, key_id, token)
-    raise KeyProviderError(f"unknown key provider scheme {scheme!r}: use file:, aws:, gcp:, azure: or infisical:")
+    if scheme == "vault":
+        from .providers.vault import VaultTransitKeyProvider
+        base_url, _, key_name = rest.rpartition("/")
+        base_url, _, mount = base_url.rpartition("/")
+        token = os.environ.get("MOLSEAL_VAULT_TOKEN") or os.environ.get("VAULT_TOKEN", "")
+        if not urlsplit(base_url).netloc or not mount or not key_name or not token:
+            raise KeyProviderError("vault spec is vault:BASE_URL/MOUNT/KEY_NAME with MOLSEAL_VAULT_TOKEN (or VAULT_TOKEN) set")
+        return VaultTransitKeyProvider(base_url, key_name, token, mount=mount,
+                                       namespace=os.environ.get("MOLSEAL_VAULT_NAMESPACE") or None)
+    raise KeyProviderError(f"unknown key provider scheme {scheme!r}: use file:, aws:, gcp:, azure:, infisical: or vault:")
 
 
 @dataclass(frozen=True)

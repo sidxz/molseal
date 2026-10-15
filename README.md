@@ -266,23 +266,27 @@ Two provider models are supported.
 | Model | Where the KEK lives | Providers |
 |---|---|---|
 | In-process | In application memory, loaded from a file or fetched from a secrets manager by the application's own client | `FileKeyProvider`, `RawKeyProvider` |
-| Key service | In a key management service that wraps and unwraps on request and never releases the key | `AwsKmsKeyProvider`, `GcpKmsKeyProvider`, `AzureKeyVaultKeyProvider`, `InfisicalKmsKeyProvider` |
+| Key service | In a key management service that wraps and unwraps on request and never releases the key | `AwsKmsKeyProvider`, `GcpKmsKeyProvider`, `AzureKeyVaultKeyProvider`, `InfisicalKmsKeyProvider`, `VaultTransitKeyProvider` |
 
 With a key service the KEK never enters the application process. Only the tenant keys do, and they
 must, because they encrypt rows and hash exact keys. Revoking the application's access stops any new
 process from opening the vault, and every wrap and unwrap appears in the service's audit log. The AWS
-and Google providers pass the tenant label as an encryption context or associated data; Azure Key Vault
-and Infisical accept none, which the library-side binding covers. The cloud providers are optional
-extras (`molseal[aws]`, `molseal[gcp]`, `molseal[azure]`); the Infisical provider uses the standard
-library.
+and Google providers pass the tenant label as an encryption context or associated data; Azure Key Vault,
+Infisical and Vault Transit accept none, which the library-side binding covers. The cloud providers are
+optional extras (`molseal[aws]`, `molseal[gcp]`, `molseal[azure]`); the Infisical and Vault Transit
+providers use the standard library.
 
 Each service needs both directions of the operation: AWS `kms:Encrypt` and `kms:Decrypt` on the key;
 Google Cloud `cloudkms.cryptoKeyVersions.useToEncrypt` and `useToDecrypt`, with a key name rather than
 a key version name; Azure `get`, `wrapKey` and `unwrapKey`, or a versioned key id when `get` is not
-granted; an Infisical machine identity allowed to encrypt and decrypt with the key. Operations appear
+granted; an Infisical machine identity allowed to encrypt and decrypt with the key; a Vault token whose
+policy has `update` on `transit/encrypt/<key>` and `transit/decrypt/<key>`. Operations appear
 in the service's audit log where that log is enabled; Google Cloud data-access logs and Azure
 diagnostics are opt-in. An AWS alias on decrypt refuses ciphertext made under a key the alias no
 longer points to; after re-pointing an alias, rewrap from the old key's ARN to the alias.
+
+Step-by-step setup for each service, with the commands, permissions, rotation and troubleshooting,
+is in [docs/key-providers.md](docs/key-providers.md).
 
 `rewrap_tenant`, and the `molseal rewrap` command, re-wrap a tenant's keys under another provider.
 This serves KEK rotation and migration from a file to a service. Each new wrapped key is verified
@@ -595,10 +599,12 @@ The evaluation tools are not part of the CLI. The absence check and the leak rep
 Database commands accept `--db`, `--key`, `--tenant`, and `--snapshot-dir`, or the corresponding
 environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY`, `MOLSEAL_TENANT`, and
 `MOLSEAL_SNAPSHOT_DIR`. `--key` takes a provider specification: a file path (or `file:PATH`),
-`aws:KEY_ID`, `gcp:KEY_NAME`, `azure:KEY_URL`, or `infisical:BASE_URL/KEY_ID` with the bearer token in
-`MOLSEAL_INFISICAL_TOKEN`. `--kind` names the query language; `--generalized` matches tautomers and
+`aws:KEY_ID`, `gcp:KEY_NAME`, `azure:KEY_URL`, `infisical:BASE_URL/KEY_ID` with the bearer token in
+`MOLSEAL_INFISICAL_TOKEN`, or `vault:BASE_URL/MOUNT/KEY_NAME` with the token in `MOLSEAL_VAULT_TOKEN` or
+`VAULT_TOKEN`. `--kind` names the query language; `--generalized` matches tautomers and
 `--chirality` makes the query's stereo mandatory, as the library's `substructure` options do. `rewrap` reads the old provider from `--key` and the new one from `--to`;
-`key-check` proves a provider works before a vault is pointed at it. Key generation takes a file path
+`key-check` proves a provider works before a vault is pointed at it. Each provider's setup is
+described in [docs/key-providers.md](docs/key-providers.md). Key generation takes a file path
 and refuses to overwrite an existing key.
 
 ## 8. Limitations and future work

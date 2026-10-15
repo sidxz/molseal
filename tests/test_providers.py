@@ -1,13 +1,17 @@
-"""One contract for every key provider, run against in-process fakes of the four services.
+"""One contract for every key provider, run against in-process fakes of the five services.
 
 The fakes are realistic where it matters: AES-GCM with the label as associated data where the real
 service has an encryption context (AWS, GCP), a real RSA-OAEP key with a versioned key id for Azure,
-base64 over the two Infisical URLs. No vendor SDK is installed or imported."""
+base64 over the two Infisical URLs, Vault's `vault:v1:` ciphertext strings over the two Transit paths.
+No vendor SDK is installed or imported."""
 
 import base64
 import builtins
+import io
+import json
 import os
 import struct
+import urllib.request
 from uuid import uuid4
 
 import pytest
@@ -20,6 +24,7 @@ from molseal.providers.aws import AwsKmsKeyProvider
 from molseal.providers.azure import ALGORITHM, AzureKeyVaultKeyProvider
 from molseal.providers.gcp import GcpKmsKeyProvider
 from molseal.providers.infisical import InfisicalKmsKeyProvider
+from molseal.providers.vault import VaultTransitKeyProvider
 
 
 class ServiceError(Exception):
@@ -150,7 +155,36 @@ class FakeInfisical:
         raise ServiceError(f"404 {url}")
 
 
-NAMES = ["raw", "file", "aws", "gcp", "azure", "infisical"]
+class FakeVaultTransit:
+    """Transit's encrypt and decrypt under one mount. Ciphertext is the `vault:v1:<base64>` string the
+    real engine returns; anything else on decrypt is a 400, as Vault answers."""
+
+    def __init__(self, base_url="https://vault.example.com:8200", mount="transit", key_name="molseal"):
+        self.base_url, self.mount, self.key_name = base_url, mount, key_name
+        self.key, self.down = os.urandom(32), False
+        self.urls: list[str] = []
+        self.reply: dict | None = None            # when set, returned verbatim
+
+    def post(self, url, body):
+        self.urls.append(url)
+        if self.down:
+            raise ServiceError("503")
+        if self.reply is not None:
+            return self.reply
+        prefix = f"{self.base_url}/v1/{self.mount}/"
+        if url == prefix + f"encrypt/{self.key_name}":
+            ct = _seal(self.key, base64.b64decode(body["plaintext"], validate=True), b"")
+            return {"data": {"ciphertext": "vault:v1:" + base64.b64encode(ct).decode(), "key_version": 1}}
+        if url == prefix + f"decrypt/{self.key_name}":
+            s = body["ciphertext"]
+            if not isinstance(s, str) or not s.startswith("vault:v1:"):
+                raise ServiceError("400 invalid ciphertext")
+            pt = _open(self.key, base64.b64decode(s[len("vault:v1:"):], validate=True), b"")
+            return {"data": {"plaintext": base64.b64encode(pt).decode()}}
+        raise ServiceError(f"404 {url}")
+
+
+NAMES = ["raw", "file", "aws", "gcp", "azure", "infisical", "vault"]
 
 
 def _make(name, tmp_path):
@@ -172,6 +206,9 @@ def _make(name, tmp_path):
     if name == "infisical":
         f = FakeInfisical()
         return InfisicalKmsKeyProvider(f.base_url, f.key_id, token="t", post=f.post), f
+    if name == "vault":
+        f = FakeVaultTransit()
+        return VaultTransitKeyProvider(f.base_url, f.key_name, token="t", mount=f.mount, post=f.post), f
     raise AssertionError(name)
 
 
@@ -215,7 +252,7 @@ def test_garbage_blob_fails(provider):
             keys.unwrap_tenant_key(p, t, "data", 1, garbage)
 
 
-@pytest.mark.parametrize("name", ["aws", "gcp", "azure", "infisical"])
+@pytest.mark.parametrize("name", ["aws", "gcp", "azure", "infisical", "vault"])
 def test_service_failure_surfaces_as_provider_error_with_cause(name, tmp_path):
     p, fake = _make(name, tmp_path)
     t, secret = uuid4(), keys.new_tenant_secret()
@@ -268,6 +305,66 @@ def test_infisical_bad_response_is_a_provider_error(tmp_path):
         assert info.value.__cause__ is not None
 
 
+def test_vault_posts_to_the_transit_encrypt_and_decrypt_paths(tmp_path):
+    p, fake = _make("vault", tmp_path)
+    t, secret = uuid4(), keys.new_tenant_secret()
+    blob = keys.wrap_tenant_key(p, t, "data", 1, secret)
+    assert blob.startswith(b"vault:v1:")                      # Transit's own ciphertext string, stored as is
+    assert keys.unwrap_tenant_key(p, t, "data", 1, blob) == secret
+    assert fake.urls == [f"{fake.base_url}/v1/transit/encrypt/molseal", f"{fake.base_url}/v1/transit/decrypt/molseal"]
+
+
+def test_vault_mount_is_configurable(tmp_path):
+    fake = FakeVaultTransit(mount="transit-prod")
+    p = VaultTransitKeyProvider(fake.base_url, fake.key_name, token="t", mount="transit-prod", post=fake.post)
+    assert p.unwrap(b"l", p.wrap(b"l", b"x" * 59)) == b"x" * 59
+    assert fake.urls[0].endswith("/v1/transit-prod/encrypt/molseal")
+
+
+def test_vault_bad_response_is_a_provider_error(tmp_path):
+    p, fake = _make("vault", tmp_path)
+    for reply in ({}, {"data": {}}, {"data": {"ciphertext": None}}, {"errors": ["permission denied"]}):
+        fake.reply = reply
+        with pytest.raises(keys.KeyProviderError) as info:
+            p.wrap(b"l", b"p")
+        assert info.value.__cause__ is not None
+
+
+def test_vault_real_post_sends_token_and_namespace_headers(monkeypatch):
+    """The default HTTP path, with urlopen replaced: the request must carry X-Vault-Token and, when
+    configured, X-Vault-Namespace, and read the reply's data.ciphertext."""
+    seen = []
+
+    class Reply(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen.append((req.full_url, req.get_method(), dict(req.header_items()), json.loads(req.data)))
+        return Reply(json.dumps({"data": {"ciphertext": "vault:v1:AAAA"}}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    p = VaultTransitKeyProvider("https://vault.example.com:8200", "molseal", token="s.TOKEN", namespace="admin")
+    assert p.wrap(b"l", b"xyz") == b"vault:v1:AAAA"
+    url, method, headers, body = seen[0]
+    assert (url, method) == ("https://vault.example.com:8200/v1/transit/encrypt/molseal", "POST")
+    assert headers["X-vault-token"] == "s.TOKEN" and headers["X-vault-namespace"] == "admin"
+    assert body == {"plaintext": base64.b64encode(b"xyz").decode()}
+    p2 = VaultTransitKeyProvider("https://vault.example.com:8200", "molseal", token="s.TOKEN")
+    p2.wrap(b"l", b"xyz")
+    assert "X-vault-namespace" not in seen[1][2]
+
+
+def test_vault_requires_https_except_for_loopback():
+    with pytest.raises(keys.KeyProviderError, match="https"):
+        VaultTransitKeyProvider("http://vault.example", "k", "t")
+    VaultTransitKeyProvider("http://127.0.0.1:8200", "k", "t")       # `vault server -dev`
+    VaultTransitKeyProvider("https://vault.example", "k", "t")
+
+
 def _azure_blob(kid: str, encrypted: bytes) -> bytes:
     return struct.pack(">H", len(kid.encode())) + kid.encode() + encrypted
 
@@ -307,6 +404,7 @@ def test_secrets_stay_out_of_repr():
     r = repr(keys.RawKeyProvider(b"\xa5" * 32))
     assert "a5" not in r and "\\xa5" not in r
     assert "SECRET-TOKEN" not in repr(InfisicalKmsKeyProvider("https://eu.infisical.com", "k", "SECRET-TOKEN"))
+    assert "SECRET-TOKEN" not in repr(VaultTransitKeyProvider("https://vault.example", "k", "SECRET-TOKEN"))
 
 
 def test_infisical_requires_https_except_for_loopback():
