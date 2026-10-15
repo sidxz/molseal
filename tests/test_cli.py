@@ -2,8 +2,10 @@ import json
 import uuid
 
 import pytest
+import sqlalchemy as sa
 
 from molseal import cli
+from molseal.store import SqlStore
 from tests.mols import molecules
 
 
@@ -177,7 +179,22 @@ def test_rewrap_all_on_an_empty_database_is_a_no_op(ctx, capsys, tmp_path):
     common, _ = ctx
     no_tenant = [a for i, a in enumerate(common) if a != "--tenant" and common[i - 1] != "--tenant"]
     assert cli.main(["rewrap", "--to", common[common.index("--key") + 1], "--all", *no_tenant]) == 0
-    assert capsys.readouterr().out == ""
+    captured = capsys.readouterr()
+    assert captured.out == "" and "no tenants" in captured.err
+
+
+def test_rewrap_all_continues_past_a_tenant_without_key_rows(ctx, capsys, tmp_path):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    SqlStore(sa.create_engine(common[common.index("--db") + 1])).ensure_tenant(uuid.UUID(int=0))
+    new = tmp_path / "new.key"
+    assert cli.main(["keygen", str(new)]) == 0
+    capsys.readouterr()
+    no_tenant = [a for i, a in enumerate(common) if a != "--tenant" and common[i - 1] != "--tenant"]
+    assert cli.main(["rewrap", "--to", str(new), "--all", *no_tenant]) == 1
+    out, err = capsys.readouterr()
+    assert "rewrapped 2 key rows" in out and "00000000-0000-0000-0000-000000000000" in err
+    assert cli.main(["count", "c1ccccc1", *_with(common, "--key", str(new))]) == 0
 
 
 def test_rewrap_to_a_bad_provider_fails_and_keeps_the_old_key_working(ctx, capsys, tmp_path):

@@ -26,6 +26,23 @@ def vault(env):
     return Vault(store, kp, uuid4(), snapshot_dir=snap)
 
 
+def test_mint_refuses_a_provider_that_cannot_unwrap(env):
+    store, kp, _ = env
+    raw = keys.RawKeyProvider(b"\x01" * 32)
+
+    class WrapOnly:
+        def wrap(self, label, plaintext):
+            return raw.wrap(label, plaintext)
+
+        def unwrap(self, label, blob):
+            raise keys.KeyProviderError("decrypt denied")
+
+    t = uuid4()
+    with pytest.raises(keys.KeyProviderError):
+        Vault(store, WrapOnly(), t)
+    assert store.get_tenant_keys(t) == [] and store.max_seq(t) == 0
+
+
 def test_put_get_round_trip_stores_canonical_smiles(vault):
     i = uuid4()
     seq = vault.put(i, "OCC", {"inchikey": "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"})

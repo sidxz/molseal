@@ -82,14 +82,21 @@ def cmd_rewrap(args: argparse.Namespace) -> int:
     store = SqlStore(sa.create_engine(args.db))
     store.create_tables()
     targets = store.list_tenants() if args.all else [uuid.UUID(args.tenant)]
+    if args.all and not targets:
+        print("no tenants", file=sys.stderr)
+        return 0
+    failed = False
     for t in targets:
         try:
             n = rewrap_tenant(store, t, old, new)
         except (KeyProviderError, VaultError) as exc:
             print(f"{t}: {exc}", file=sys.stderr)
-            return 1
+            if not args.all:
+                return 1
+            failed = True
+            continue
         print(f"{t}: rewrapped {n} key rows")
-    return 0
+    return 1 if failed else 0
 
 
 def cmd_key_check(args: argparse.Namespace) -> int:

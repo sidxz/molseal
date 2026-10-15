@@ -70,6 +70,9 @@ class Vault:
             data, hm = new_tenant_secret(), new_tenant_secret()
             wd = wrap_tenant_key(self._key_provider, self.tenant_id, "data", dv, data)
             wh = wrap_tenant_key(self._key_provider, self.tenant_id, "hmac", hv, hm)
+            for kind, version, blob, secret in (("data", dv, wd, data), ("hmac", hv, wh, hm)):
+                if unwrap_tenant_key(self._key_provider, self.tenant_id, kind, version, blob) != secret:
+                    raise KeyProviderError(f"key provider does not round-trip the new {kind} key; nothing was written")
             self.store.put_tenant_keys(self.tenant_id, [WrappedKey("data", dv, wd), WrappedKey("hmac", hv, wh)])
             return TenantKeys(data, dv, hm, hv)
         try:
