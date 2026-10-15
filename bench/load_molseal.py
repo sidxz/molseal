@@ -17,7 +17,7 @@ from pathlib import Path
 
 import sqlalchemy as sa
 
-from molseal.keys import FileKeyProvider, KeyProvider
+from molseal.keys import KeyProvider, provider_from_spec
 from molseal.store import SqlStore, StructureStore
 from molseal.vault import Vault
 
@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--db, --key and --tenant (or MOLSEAL_* env vars) are required")
     store = SqlStore(sa.create_engine(a.db))
     store.create_tables()
-    stats = load(Path(a.slice), store, FileKeyProvider(Path(a.key)), uuid.UUID(a.tenant), a.chunk,
+    stats = load(Path(a.slice), store, provider_from_spec(a.key), uuid.UUID(a.tenant), a.chunk,
                  Path(a.snapshot_dir) if a.snapshot_dir else None)
     n = Path(a.slice).stem.split("_")[-1]
     out = Path(a.results) / f"load_molseal_{n}.json"

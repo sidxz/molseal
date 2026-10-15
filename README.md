@@ -276,6 +276,14 @@ and Infisical accept none, which the library-side binding covers. The cloud prov
 extras (`molseal[aws]`, `molseal[gcp]`, `molseal[azure]`); the Infisical provider uses the standard
 library.
 
+Each service needs both directions of the operation: AWS `kms:Encrypt` and `kms:Decrypt` on the key;
+Google Cloud `cloudkms.cryptoKeyVersions.useToEncrypt` and `useToDecrypt`, with a key name rather than
+a key version name; Azure `get`, `wrapKey` and `unwrapKey`, or a versioned key id when `get` is not
+granted; an Infisical machine identity allowed to encrypt and decrypt with the key. Operations appear
+in the service's audit log where that log is enabled; Google Cloud data-access logs and Azure
+diagnostics are opt-in. An AWS alias on decrypt refuses ciphertext made under a key the alias no
+longer points to; after re-pointing an alias, rewrap from the old key's ARN to the alias.
+
 `rewrap_tenant`, and the `molseal rewrap` command, re-wrap a tenant's keys under another provider.
 This serves KEK rotation and migration from a file to a service. Each new wrapped key is verified
 before the key rows are replaced in one transaction, no structure row is touched, and running
@@ -463,8 +471,8 @@ This starts PostgreSQL on port 5439. SQLite can be used for a self-contained loc
 ### 7.2 Minimal example
 
 The following example uses a temporary directory so that it can be run without a PostgreSQL server.
-For a persistent deployment, use one fixed tenant identifier kept in configuration and store the key separately from the
-database host and its backups.
+For a persistent deployment, use one fixed tenant identifier kept in configuration and store the key
+separately from the database host and its backups.
 
 ```python
 import uuid
@@ -488,7 +496,8 @@ with TemporaryDirectory() as directory:
     store.create_tables()
     vault = Vault(
         store,
-        keys.FileKeyProvider(key_path),        # or e.g. AzureKeyVaultKeyProvider("https://<vault>.vault.azure.net/keys/<name>")
+        keys.FileKeyProvider(key_path),        # or e.g. AzureKeyVaultKeyProvider(
+                                               #   "https://<vault>.vault.azure.net/keys/<name>")
         tenant_id=uuid.uuid4(),
         snapshot_dir=root / "snapshots",
         families=(MORGAN2, FEATMORGAN2),

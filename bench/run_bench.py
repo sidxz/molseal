@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 from bench.load_cartridge import CARTRIDGE_URL
 from bench.parity import cartridge_query_sql
-from molseal.keys import FileKeyProvider
+from molseal.keys import provider_from_spec
 from molseal.store import SqlStore
 from molseal.vault import Vault
 
@@ -191,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     rows: list[dict] = []
     if a.side == "molseal":
         t0 = time.perf_counter()
-        vault = Vault(SqlStore(sa.create_engine(a.db)), FileKeyProvider(Path(a.key)), uuid.UUID(a.tenant),
+        vault = Vault(SqlStore(sa.create_engine(a.db)), provider_from_spec(a.key), uuid.UUID(a.tenant),
                       snapshot_dir=Path(a.snapshot_dir) if a.snapshot_dir else None)
         meta["cold_load_s"] = round(time.perf_counter() - t0, 2)
         snap = Path(a.snapshot_dir, f"{a.tenant}.molseal") if a.snapshot_dir else None

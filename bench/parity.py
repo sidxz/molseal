@@ -21,7 +21,7 @@ from sqlalchemy import text
 from bench.load_cartridge import CARTRIDGE_URL
 from molseal import engine, metrics
 from molseal.engine import FEATMORGAN2, MORGAN2, MORGAN2_CHIRAL
-from molseal.keys import FileKeyProvider
+from molseal.keys import provider_from_spec
 from molseal.store import SqlStore
 from molseal.vault import Vault
 
@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     rej_path = Path(f"bench/results/cartridge_rejected_{a.n}.txt")
     rejected = {uuid.UUID(l) for l in rej_path.read_text().split()} if rej_path.exists() else set()
     store = SqlStore(sa.create_engine(a.db))
-    vault = Vault(store, FileKeyProvider(Path(a.key)), uuid.UUID(a.tenant), snapshot_dir=Path(a.snapshot_dir) if a.snapshot_dir else None,
+    vault = Vault(store, provider_from_spec(a.key), uuid.UUID(a.tenant), snapshot_dir=Path(a.snapshot_dir) if a.snapshot_dir else None,
                   families=FAMILIES)
     sidecar = Path(f"bench/data/slice_{a.n}.tsv.ids.tsv")
     ids = [uuid.UUID(l.split("\t")[0]) for l in sidecar.read_text().splitlines()]
