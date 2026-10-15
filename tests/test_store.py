@@ -99,7 +99,7 @@ def test_delete_is_a_write_that_bumps_seq_and_hides_keys(store):
     store.put_structure(rec(t, a), {"inchikey": b"h" * 32}, None)
     s = store.put_structure(rec(t, a, rv=2, deleted=True), {}, 1)
     assert s == 2
-    assert store.live_count(t) == 0 and store.tenant_state(t) == (2, 0)
+    assert store.tenant_state(t) == (2, 0)
     assert store.find_by_key(t, "inchikey", b"h" * 32) == []
     assert store.changes_since(t, 1)[0].deleted is True
 
@@ -114,7 +114,7 @@ def test_find_by_key_is_tenant_scoped_and_can_return_several(store):
     store.put_structure(rec(t2, c), {"inchikey": b"h" * 32}, None)
     assert sorted(store.find_by_key(t1, "inchikey", b"h" * 32)) == sorted([a, b])
     assert store.find_by_key(t2, "inchikey", b"h" * 32) == [c]
-    assert store.live_count(t1) == 2 and store.tenant_state(t1) == (2, 2)
+    assert store.tenant_state(t1) == (2, 2)
 
 
 def test_get_structure_missing_is_none(store):
@@ -146,7 +146,7 @@ def test_live_count_tracks_every_transition(store):
     steps = [(1, False, None, 1), (2, False, 1, 1), (3, True, 2, 0), (4, True, 3, 0), (5, False, 4, 1)]
     for rv, deleted, expected, live in steps:   # new, live->live, live->dead, dead->dead, dead->live
         store.put_structure(rec(t, a, rv=rv, deleted=deleted), {}, expected)
-        assert store.tenant_state(t)[1] == live == store.live_count(t)
+        assert store.tenant_state(t)[1] == live
 
 
 def test_changes_since_upto_bounds_the_range(store):

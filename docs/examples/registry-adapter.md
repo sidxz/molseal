@@ -4,9 +4,7 @@ Generic sketch of how a registry application maps its own vocabulary onto molsea
 library knows none of these names; they live in the application.
 
 ```python
-from molseal import metrics
-from molseal.engine import FEATMORGAN2, MORGAN2, MORGAN2_CHIRAL
-from molseal.vault import Vault
+from molseal import FEATMORGAN2, MORGAN2, MORGAN2_CHIRAL, Vault, metrics
 
 vault = Vault(store, key_provider, workspace_id, snapshot_dir=snapshots,
               families=(MORGAN2, MORGAN2_CHIRAL, FEATMORGAN2))

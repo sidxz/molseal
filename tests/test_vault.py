@@ -81,7 +81,7 @@ def test_find_exact_verifies_against_the_payload(vault):
     assert vault.find_exact("inchikey", "nope") == []
     assert vault.find_exact("other", "AAA") == []
     # A writer copies A's hmac row onto B. The index says B; the payload says no.
-    h = keys.exact_key_hmac(vault.keys.hmac_key, "inchikey", "AAA")
+    h = keys.exact_key_hmac(vault._keys.hmac_key, "inchikey", "AAA")
     with vault.store.engine.begin() as conn:
         conn.execute(update(structure_keys).where(structure_keys.c.id == b).values(hmac=h))
     assert vault.find_exact("inchikey", "AAA") == [a]
@@ -94,7 +94,7 @@ def test_a_second_instance_sees_writes_through_the_cursor(env):
     t = uuid4()
     v1 = Vault(store, kp, t)
     v2 = Vault(store, kp, t)
-    assert v1.keys == v2.keys
+    assert v1._keys == v2._keys
     x = uuid4()
     v1.put(x, "CCO")
     assert v2.substructure("CCO") == [x]
@@ -126,7 +126,7 @@ def test_snapshot_save_load_and_catch_up(env):
     assert path.exists()
     v1.put(b, "CCN")
     v3 = Vault(store, kp, t, snapshot_dir=snap)
-    assert v3.index.positions >= 2
+    assert v3._index.positions >= 2
     assert set(v3.substructure("[CX4]", kind="smarts")) == {a, b}
 
 
@@ -197,8 +197,8 @@ def test_an_unindexable_row_is_counted_and_does_not_loop_rebuilds(env, monkeypat
     nonce, ct = v1._seal(bad, 2, Payload("C1CC", {}, False))
     store.put_structure(StructureRecord(t, bad, 2, 1, nonce, ct, False), {}, 1)
     v2 = Vault(store, kp, t)
-    assert v2.index.unindexed == {bad} and len(v2) == 1
-    assert v1.substructure("CCN") == [] and v1.index.unindexed == {bad}    # old version no longer served
+    assert v2._index.unindexed == {bad} and len(v2) == 1
+    assert v1.substructure("CCN") == [] and v1._index.unindexed == {bad}    # old version no longer served
     rebuilds = []
     real = v2._rebuild_locked
     monkeypatch.setattr(v2, "_rebuild_locked", lambda upto: rebuilds.append(upto) or real(upto))
@@ -208,7 +208,7 @@ def test_an_unindexable_row_is_counted_and_does_not_loop_rebuilds(env, monkeypat
     v2.refresh()
     assert rebuilds == []
     v1.put(bad, "CCCl")                              # a later good version leaves the set
-    assert v2.substructure("CCCl") == [bad] and v2.index.unindexed == set()
+    assert v2.substructure("CCCl") == [bad] and v2._index.unindexed == set()
 
 
 def test_put_many_loads_in_chunks_with_consecutive_seqs(vault):
@@ -220,7 +220,7 @@ def test_put_many_loads_in_chunks_with_consecutive_seqs(vault):
     assert vault.store.tenant_state(vault.tenant_id) == (25, 25)
     assert vault.find_exact("inchikey", "K7") == [ids[7]]
     assert set(vault.substructure("[#6]", kind="smarts")) == set(ids)
-    assert vault.index.last_seq == 25
+    assert vault._index.last_seq == 25
 
 
 def test_put_many_edits_existing_ids_and_rejects_duplicates_and_garbage(vault):
@@ -255,9 +255,9 @@ def test_put_many_retries_a_conflict_with_fresh_nonces_and_indexes_once(vault, m
             raise VersionConflict("simulated concurrent writer")
         return real_put(batch)
 
-    real_add = vault.index.add_batch
+    real_add = vault._index.add_batch
     monkeypatch.setattr(vault.store, "put_structures", flaky)
-    monkeypatch.setattr(vault.index, "add_batch", lambda items, n=-1: indexed.append(len(items)) or real_add(items, n))
+    monkeypatch.setattr(vault._index, "add_batch", lambda items, n=-1: indexed.append(len(items)) or real_add(items, n))
     ids = [uuid4(), uuid4()]
     assert vault.put_many([(ids[0], "CCO", None), (ids[1], "CCN", None)]) == 2
     assert len(attempts) == 2 and not set(attempts[0]) & set(attempts[1])     # re-sealed, not resent
@@ -291,7 +291,7 @@ def test_fingerprints_sync_before_reading(env):
     Vault(store, kp, t).put(b, "CCN")                                # written elsewhere
     found, mat = v1.fingerprints([b, a])
     assert found == [b, a]
-    assert np.array_equal(mat, engine.morgan_matrix([engine.Chem.MolFromSmiles("CCN"), engine.Chem.MolFromSmiles("CCO")]))
+    assert np.array_equal(mat, engine.pack_fingerprints(engine.MORGAN2.generator(), [engine.Chem.MolFromSmiles("CCN"), engine.Chem.MolFromSmiles("CCO")], engine.MORGAN2.nbytes))
     with pytest.raises(ValueError):
         v1.fingerprints([a], "nope")
 
@@ -302,15 +302,15 @@ def test_families_reach_fresh_rebuilt_and_loaded_indexes(env):
     v = Vault(store, kp, t, snapshot_dir=snap, families=(MORGAN2, FEATMORGAN2))
     a = uuid4()
     v.put(a, "CCOc1ccccc1")
-    assert [f.name for f in v.index.families] == ["morgan2", "featmorgan2"]
+    assert [f.name for f in v._index.families] == ["morgan2", "featmorgan2"]
     assert {i for i, _ in v.similar("CCOc1ccccc1", 0.99, family="featmorgan2", metric=metrics.dice)} == {a}
     v.rebuild()
-    assert [f.name for f in v.index.families] == ["morgan2", "featmorgan2"]
+    assert [f.name for f in v._index.families] == ["morgan2", "featmorgan2"]
     v.save_snapshot()
     same = Vault(store, kp, t, snapshot_dir=snap, families=(MORGAN2, FEATMORGAN2))
-    assert [f.name for f in same.index.families] == ["morgan2", "featmorgan2"]
+    assert [f.name for f in same._index.families] == ["morgan2", "featmorgan2"]
     other = Vault(store, kp, t, snapshot_dir=snap, families=(MORGAN2_CHIRAL,))
-    assert [f.name for f in other.index.families] == ["morgan2-chiral"]
+    assert [f.name for f in other._index.families] == ["morgan2-chiral"]
     assert {i for i, _ in other.similar("CCOc1ccccc1", 0.99, family="morgan2-chiral")} == {a}
 
 
@@ -329,7 +329,7 @@ def test_a_format_one_snapshot_is_rebuilt_and_resaved_as_format_two(env, monkeyp
     assert len(warned) == 1 and str(path) in warned[0].getMessage()
     assert v2.substructure("CCO") == [a]
     v2.save_snapshot()
-    assert snapshot.load(path, v2.keys.data_key, t, v2.keys.data_key_version).substructure("CCO") == [a]
+    assert snapshot.load(path, v2._keys.data_key, t, v2._keys.data_key_version).substructure("CCO") == [a]
 
 
 def test_a_tampered_snapshot_still_refuses_to_open(env):

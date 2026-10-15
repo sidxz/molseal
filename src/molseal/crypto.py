@@ -12,13 +12,15 @@ from uuid import UUID
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .errors import MolsealError
+
 NONCE_LEN = 12
 TAG_LEN = 16
 MIN_SIZE_CLASS = 256
 CHUNK_SIZE = 64 * 1024 * 1024
 
 
-class SealError(Exception):
+class SealError(MolsealError):
     """Ciphertext did not open: wrong key, wrong label, or tampered bytes."""
 
 
@@ -52,6 +54,7 @@ def seal(key: bytes, plaintext: bytes, aad: bytes) -> tuple[bytes, bytes]:
 
 
 def open_sealed(key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
+    """Decrypt and authenticate; the label must equal the one given to seal."""
     try:
         return AESGCM(key).decrypt(nonce, ciphertext, aad)
     except InvalidTag as exc:
@@ -59,10 +62,12 @@ def open_sealed(key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes) -> byte
 
 
 def row_aad(tenant_id: UUID, id: UUID, key_version: int, row_version: int) -> bytes:
+    """The label of a structure row: it binds the ciphertext to its tenant, id and versions."""
     return tenant_id.bytes + id.bytes + struct.pack(">II", key_version, row_version)
 
 
 def key_aad(tenant_id: UUID, kind: str, version: int) -> bytes:
+    """The label of a wrapped tenant key: tenant, kind ('data' or 'hmac') and version."""
     return tenant_id.bytes + kind.encode("ascii") + b"\x00" + struct.pack(">I", version)
 
 
@@ -82,6 +87,7 @@ def seal_chunks(
 
 
 def open_chunks(key: bytes, chunks: list[tuple[bytes, bytes]], aad_prefix: bytes) -> bytes:
+    """Inverse of seal_chunks; a reordered, dropped or duplicated chunk fails its label check."""
     count = len(chunks)
     return b"".join(
         open_sealed(key, nonce, ct, chunk_aad(aad_prefix, i, count))

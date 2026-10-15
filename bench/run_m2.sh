@@ -88,7 +88,7 @@ step8() {
 step9() { uv run python -m bench.run_bench --n "$N" --side molseal --mode warm --where host "${MS[@]}"; }
 step10() {
   uv run python -m bench.run_bench --n "$N" --report
-  uv run molseal leak-report "${SLICE}.ids.tsv" --db "$DB" --key "$KEY" --tenant "$TENANT" | tee "bench/results/leak_${N}.json"
+  uv run python -m bench.leak leak-report "${SLICE}.ids.tsv" --db "$DB" --tenant "$TENANT" | tee "bench/results/leak_${N}.json"
 }
 
 for i in $STEPS; do log "step $i"; "step$i"; done

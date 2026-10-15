@@ -21,12 +21,12 @@ import numpy as np
 
 from . import snapshot
 from .crypto import open_sealed, pad, row_aad, seal, unpad
-from .engine import DEFAULT_FAMILIES, FingerprintSpec, QueryKind, StructureIndex, canonicalize
-from .metrics import Metric, tanimoto
+from .engine import DEFAULT_FAMILIES, MORGAN2, FingerprintSpec, QueryKind, StructureIndex, canonicalize
+from .errors import MolsealError
 from .keys import (KeyProvider, KeyProviderError, TenantKeys, exact_key_hmac, new_tenant_secret,
                    unwrap_tenant_key, wrap_tenant_key)
+from .metrics import Metric, tanimoto
 from .payload import Payload, decode, encode
-from .snapshot import SnapshotFormatError
 from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
 
 log = logging.getLogger(__name__)
@@ -34,15 +34,23 @@ log = logging.getLogger(__name__)
 WRITE_ATTEMPTS = 5
 
 
-class VaultError(Exception):
-    pass
+class VaultError(MolsealError):
+    """The vault cannot proceed: missing key rows, a persistent write conflict, or no snapshot_dir."""
 
 
 class NotFound(VaultError):
-    pass
+    """delete() was asked to remove an id the tenant never held."""
 
 
 class Vault:
+    """One tenant's encrypted structures. Writes go to the store and the in-memory index together, and
+    every search first catches the index up with the store's change sequence.
+
+    Construction does work: it creates the tenant row if needed, mints and stores the tenant's keys on
+    first use, loads the snapshot under `snapshot_dir` when one exists, and pulls any rows the index
+    has not seen. `families` fixes which fingerprint families the index carries; `num_threads` goes to
+    RDKit (-1: all cores); `refresh_batch` is how many change rows a catch-up reads per query."""
+
     def __init__(self, store: StructureStore, key_provider: KeyProvider, tenant_id: UUID,
                  snapshot_dir: Path | None = None, num_threads: int = -1, refresh_batch: int = 10000,
                  families: Sequence[FingerprintSpec] = DEFAULT_FAMILIES) -> None:
@@ -55,8 +63,8 @@ class Vault:
         self._lock = threading.Lock()   # ponytail: one lock for reads and writes; RW lock when readers contend
         self._key_provider = key_provider
         self.tenant = store.ensure_tenant(tenant_id)
-        self.keys = self._load_or_create_keys()
-        self.index = self._load_snapshot() or StructureIndex(self.families)
+        self._keys = self._load_or_create_keys()
+        self._index = self._load_snapshot() or StructureIndex(self.families)
         self.refresh()
 
     # ----- keys -----
@@ -94,48 +102,54 @@ class Vault:
         if p is None or not p.exists():
             return None
         try:
-            return snapshot.load(p, self.keys.data_key, self.tenant_id, self.keys.data_key_version, self.families)
-        except SnapshotFormatError as exc:
+            return snapshot.load(p, self._keys.data_key, self.tenant_id, self._keys.data_key_version, self.families)
+        except snapshot.SnapshotFormatError as exc:
             log.warning("ignoring snapshot %s: %s", p, exc)
             return None          # an older format: rebuild from the store, the next save overwrites it
 
     def save_snapshot(self) -> Path:
+        """Write the index to `<snapshot_dir>/<tenant_id>.molseal`, encrypted under the data key, so the
+        next Vault for this tenant opens without replaying the store. Returns the path."""
         p = self._snapshot_path()
         if p is None:
             raise VaultError("no snapshot_dir configured")
         p.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
-            snapshot.save(self.index, p, self.keys.data_key, self.tenant_id, self.keys.data_key_version)
+            snapshot.save(self._index, p, self._keys.data_key, self.tenant_id, self._keys.data_key_version)
         return p
 
     # ----- row crypto -----
 
     def _open(self, rec: StructureRecord) -> Payload:
         aad = row_aad(self.tenant_id, rec.id, rec.data_key_version, rec.row_version)
-        return decode(unpad(open_sealed(self.keys.data_key, rec.nonce, rec.ciphertext, aad)))
+        return decode(unpad(open_sealed(self._keys.data_key, rec.nonce, rec.ciphertext, aad)))
 
     def _seal(self, id: UUID, row_version: int, payload: Payload) -> tuple[bytes, bytes]:
-        aad = row_aad(self.tenant_id, id, self.keys.data_key_version, row_version)
-        return seal(self.keys.data_key, pad(encode(payload)), aad)
+        aad = row_aad(self.tenant_id, id, self._keys.data_key_version, row_version)
+        return seal(self._keys.data_key, pad(encode(payload)), aad)
 
     # ----- writes -----
 
-    def put(self, id: UUID, smiles: str, exact_keys: dict[str, str] | None = None) -> int:
-        canonical = canonicalize(smiles)          # raises StructureError before any write
-        ek = dict(exact_keys or {})
-        hmacs = {k: exact_key_hmac(self.keys.hmac_key, k, v) for k, v in ek.items()}
+    def put(self, id: UUID, smiles: str, keys: dict[str, str] | None = None) -> int:
+        """Store or replace one structure. `smiles` is canonicalized first, so a StructureError leaves
+        nothing written. `keys` are the caller's exact lookup keys, kind -> value, for find_exact.
+        Returns the row's new version: 1 for a new id, one more than before for a replaced one."""
+        canonical = canonicalize(smiles)
+        ek = dict(keys or {})
+        hmacs = {k: exact_key_hmac(self._keys.hmac_key, k, v) for k, v in ek.items()}
         with self._lock:
             seq, rv = self._write(id, Payload(canonical, ek, False), hmacs)
-            self.index.add_batch([(id, canonical, rv)], self.num_threads)
+            self._index.add_batch([(id, canonical, rv)], self.num_threads)
             self._advance(seq)
-        return seq
+        return rv
 
     def delete(self, id: UUID) -> int:
+        """Tombstone one structure; NotFound if the tenant never held `id`. Returns the row's new version."""
         with self._lock:
             seq, rv = self._write(id, Payload("", {}, True), {})
-            self.index.mark_dead(id, rv)
+            self._index.mark_dead(id, rv)
             self._advance(seq)
-        return seq
+        return rv
 
     def put_many(self, items: Iterable[tuple[UUID, str, dict[str, str] | None]], chunk: int = 10_000) -> int:
         """Bulk ingest. Each chunk is canonicalized and encrypted in Python, written in one store
@@ -165,8 +179,8 @@ class Vault:
                     expected = None if ex is None else ex.row_version
                     rv = 1 if expected is None else expected + 1
                     nonce, ct = self._seal(i, rv, Payload(canonical, ek, False))
-                    rec = StructureRecord(self.tenant_id, i, rv, self.keys.data_key_version, nonce, ct, False)
-                    batch.append((rec, {k: exact_key_hmac(self.keys.hmac_key, k, v) for k, v in ek.items()}, expected))
+                    rec = StructureRecord(self.tenant_id, i, rv, self._keys.data_key_version, nonce, ct, False)
+                    batch.append((rec, {k: exact_key_hmac(self._keys.hmac_key, k, v) for k, v in ek.items()}, expected))
                     items.append((i, canonical, rv))
                 try:
                     seqs = self.store.put_structures(batch)
@@ -175,7 +189,7 @@ class Vault:
                     continue
             else:
                 raise VaultError(f"chunk of {len(group)}: row_version conflict persisted after {WRITE_ATTEMPTS} attempts")
-            self.index.add_batch(items, self.num_threads)
+            self._index.add_batch(items, self.num_threads)
             self._advance(seqs[0], seqs[-1])
         return len(batch)
 
@@ -188,7 +202,7 @@ class Vault:
             expected = None if existing is None else existing.row_version
             rv = 1 if expected is None else expected + 1
             nonce, ct = self._seal(id, rv, payload)
-            rec = StructureRecord(self.tenant_id, id, rv, self.keys.data_key_version, nonce, ct, payload.deleted)
+            rec = StructureRecord(self.tenant_id, id, rv, self._keys.data_key_version, nonce, ct, payload.deleted)
             try:
                 return self.store.put_structure(rec, hmacs, expected), rv
             except VersionConflict:
@@ -198,14 +212,15 @@ class Vault:
     def _advance(self, first_seq: int, last_seq: int | None = None) -> None:
         """After our own write(s): if nothing else landed in between, remember the last seq; otherwise catch up."""
         last_seq = first_seq if last_seq is None else last_seq
-        if first_seq == self.index.last_seq + 1:
-            self.index.last_seq = last_seq
+        if first_seq == self._index.last_seq + 1:
+            self._index.last_seq = last_seq
         else:
             self._refresh_locked(*self.store.tenant_state(self.tenant_id))
 
     # ----- reads -----
 
     def get(self, id: UUID) -> Payload | None:
+        """The decrypted payload of a live row, or None for an unknown or deleted id."""
         rec = self.store.get_structure(self.tenant_id, id)
         if rec is None:
             return None
@@ -213,7 +228,9 @@ class Vault:
         return None if p.deleted else p
 
     def find_exact(self, kind: str, value: str) -> list[UUID]:
-        h = exact_key_hmac(self.keys.hmac_key, kind, value)
+        """Ids of live rows whose exact key `kind` equals `value`. The database holds only a keyed hash
+        of each key, so every candidate is decrypted and checked before it is returned."""
+        h = exact_key_hmac(self._keys.hmac_key, kind, value)
         out = []
         for id_ in self.store.find_by_key(self.tenant_id, kind, h):
             p = self.get(id_)
@@ -231,52 +248,60 @@ class Vault:
                     out[id_] = p
         return out
 
-    def fingerprints(self, ids: Iterable[UUID], family: str = DEFAULT_FAMILIES[0].name) -> tuple[list[UUID], np.ndarray]:
+    def fingerprints(self, ids: Iterable[UUID], family: str = MORGAN2.name) -> tuple[list[UUID], np.ndarray]:
         """Packed fingerprint rows of `family` for the live ids among `ids`, in the order given, after
         the same catch-up a search does."""
         ids = list(ids)
         with self._lock:
             self._sync_locked()
-            return self.index.fingerprints(ids, family)
+            return self._index.fingerprints(ids, family)
 
     def substructure(self, query: str, kind: QueryKind = "smiles", max_results: int | None = None, *,
                      generalized: bool = False, use_chirality: bool = False) -> list[UUID]:
+        """Ids of live structures containing `query`, written in the language `kind` names. `generalized`
+        matches tautomers and enumerated forms; `use_chirality` makes the query's stereo mandatory;
+        `max_results` caps the hits. The index is caught up with the store first."""
         with self._lock:
             self._sync_locked()
-            return self.index.substructure(query, kind, max_results, self.num_threads,
+            return self._index.substructure(query, kind, max_results, self.num_threads,
                                            generalized=generalized, use_chirality=use_chirality)
 
     def count_substructure(self, query: str, kind: QueryKind = "smiles", *,
                            generalized: bool = False, use_chirality: bool = False) -> int:
+        """How many live structures contain `query`; same options as substructure."""
         with self._lock:
             self._sync_locked()
-            return self.index.count_substructure(query, kind, self.num_threads,
+            return self._index.count_substructure(query, kind, self.num_threads,
                                                  generalized=generalized, use_chirality=use_chirality)
 
-    def similar(self, query_smiles: str, threshold: float = 0.7, top_k: int | None = None, *,
-                family: str = DEFAULT_FAMILIES[0].name, metric: Metric = tanimoto) -> list[tuple[UUID, float]]:
+    def similar(self, query: str, threshold: float = 0.7, top_k: int | None = None, *,
+                family: str = MORGAN2.name, metric: Metric = tanimoto) -> list[tuple[UUID, float]]:
+        """(id, score) pairs for live structures whose `family` fingerprint scores at least `threshold`
+        against the SMILES `query` under `metric`, best first; `top_k` keeps the k best."""
         with self._lock:
             self._sync_locked()
-            return self.index.similar(query_smiles, threshold, top_k, family=family, metric=metric)
+            return self._index.similar(query, threshold, top_k, family=family, metric=metric)
 
     def __len__(self) -> int:
-        return len(self.index)
+        return len(self._index)
 
     # ----- catching up -----
 
     def refresh(self) -> int:
+        """Apply every store change the index has not seen. Returns how many rows were applied."""
         with self._lock:
             return self._refresh_locked(*self.store.tenant_state(self.tenant_id))
 
     def rebuild(self) -> None:
+        """Discard the index and rebuild it from the store's full change history."""
         with self._lock:
             self._rebuild_locked(self.store.tenant_state(self.tenant_id)[0])
 
     def _sync_locked(self) -> None:
         cursor, live = self.store.tenant_state(self.tenant_id)
-        if cursor < self.index.last_seq:
+        if cursor < self._index.last_seq:
             self._rebuild_locked(cursor)
-        elif cursor > self.index.last_seq:
+        elif cursor > self._index.last_seq:
             self._refresh_locked(cursor, live)
 
     def _catch_up(self, index: StructureIndex, upto: int) -> int:
@@ -298,15 +323,15 @@ class Vault:
 
     def _refresh_locked(self, cursor: int, live: int) -> int:
         """Catch up to exactly `cursor`, then compare with `live`, the count read with it."""
-        applied = self._catch_up(self.index, cursor)
-        if live != len(self.index) + len(self.index.unindexed):
+        applied = self._catch_up(self._index, cursor)
+        if live != len(self._index) + len(self._index.unindexed):
             self._rebuild_locked(cursor)
         return applied
 
     def _rebuild_locked(self, upto: int) -> None:
         fresh = StructureIndex(self.families)          # built aside, then swapped in
         self._catch_up(fresh, upto)
-        self.index = fresh
+        self._index = fresh
 
 
 def rewrap_tenant(store: StructureStore, tenant_id: UUID, old: KeyProvider, new: KeyProvider) -> int:

@@ -8,21 +8,20 @@ No SQL lives here. Positions are integers; the vault maps ids to its own tables.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
 import numpy as np
-from rdkit import Chem, RDLogger
+from pydantic import Field
+from pydantic.dataclasses import dataclass
+from rdkit import Chem, rdBase
 from rdkit.Chem import rdFingerprintGenerator
 from rdkit.Chem.rdGeneralizedSubstruct import CreateExtendedQueryMol, MolHasSubstructMatch
 from rdkit.Chem.rdSubstructLibrary import AddPatterns, CachedTrustedSmilesMolHolder, SubstructLibrary, TautomerPatternHolder
 
+from .errors import MolsealError
 from .metrics import Metric, tanimoto
-
-RDLogger.DisableLog("rdApp.*")
 
 QueryKind = Literal["smiles", "smarts", "molblock"]
 _PARSERS: dict[str, Callable[[str], Chem.Mol | None]] = {
@@ -30,25 +29,18 @@ _PARSERS: dict[str, Callable[[str], Chem.Mol | None]] = {
     "smarts": Chem.MolFromSmarts,            # taken literally: no aromaticity perception
     "molblock": Chem.MolFromMolBlock,        # sanitized, explicit hydrogens removed
 }
-_NAME = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 
 
 @dataclass(frozen=True)
 class FingerprintSpec:
     """A fingerprint family. `name` is its identity: change it when the generator changes. `bits` is a
-    positive multiple of 64. `generator` is a zero-argument factory returning an RDKit fingerprint
-    generator: anything with GetFingerprints(mols, numThreads=n) giving `bits`-wide bit vectors."""
-    name: str
-    bits: int
-    generator: Callable[[], Any]
+    positive multiple of 64 below 65536 (per-row bit counts are uint16). `generator` is a zero-argument
+    factory returning an RDKit fingerprint generator: anything with GetFingerprints(mols, numThreads=n)
+    giving `bits`-wide bit vectors. A bad field raises pydantic's ValidationError, a ValueError."""
 
-    def __post_init__(self) -> None:
-        if not _NAME.match(self.name):
-            raise ValueError(f"bad fingerprint family name {self.name!r}")
-        if self.bits <= 0 or self.bits % 64:
-            raise ValueError(f"{self.name}: bits must be a positive multiple of 64, got {self.bits}")
-        if self.bits >= 65536:
-            raise ValueError(f"{self.name}: bits must be below 65536 (per-row bit counts are uint16), got {self.bits}")
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    bits: int = Field(gt=0, lt=65536, multiple_of=64)
+    generator: Callable[[], Any] = Field()
 
     @property
     def nbytes(self) -> int:
@@ -65,31 +57,31 @@ FEATMORGAN2 = FingerprintSpec("featmorgan2", 2048, lambda: rdFingerprintGenerato
     radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen()))
 DEFAULT_FAMILIES: tuple[FingerprintSpec, ...] = (MORGAN2,)
 
-FP_BITS = MORGAN2.bits            # the default family; kept for morgan_matrix callers
-FP_BYTES = MORGAN2.nbytes
-_MORGAN_GEN = MORGAN2.generator()
 
-
-class StructureError(ValueError):
+class StructureError(MolsealError, ValueError):
     """A SMILES or query could not be parsed."""
 
 
 def canonicalize(smiles: str) -> str:
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        raise StructureError(f"cannot parse SMILES: {smiles!r}")
-    out = Chem.MolToSmiles(mol)
-    if Chem.MolFromSmiles(out) is None:     # the index re-parses what we store, so it must parse
-        raise StructureError(f"canonical SMILES does not re-parse: {smiles!r}")
+    """RDKit's canonical SMILES for `smiles`: the form the vault stores and the index re-parses."""
+    with rdBase.BlockLogs():        # RDKit prints parse errors; the exception below carries them instead
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            raise StructureError(f"cannot parse SMILES: {smiles!r}")
+        out: str = Chem.MolToSmiles(mol)
+        if Chem.MolFromSmiles(out) is None:     # the index re-parses what we store, so it must parse
+            raise StructureError(f"canonical SMILES does not re-parse: {smiles!r}")
     return out
 
 
 def parse_many(smiles: Sequence[str]) -> list[Chem.Mol | None]:
+    """RDKit molecules for canonical SMILES, None where a string no longer parses."""
     # ponytail: serial parse; swap for a multithreaded supplier or a process pool when ingest time matters
-    return [Chem.MolFromSmiles(s) for s in smiles]
+    with rdBase.BlockLogs():
+        return [Chem.MolFromSmiles(s) for s in smiles]
 
 
-def _pack(fp) -> np.ndarray:
+def _pack(fp: Any) -> np.ndarray:
     bits = np.frombuffer(fp.ToBitString().encode("ascii"), dtype=np.uint8) - ord("0")
     return np.packbits(bits)
 
@@ -105,11 +97,6 @@ def pack_fingerprints(generator: Any, mols: Sequence[Chem.Mol], nbytes: int, num
     return np.stack([_pack(fp) for fp in fps])
 
 
-def morgan_matrix(mols: Sequence[Chem.Mol], num_threads: int = -1) -> np.ndarray:
-    """The default family (Morgan radius 2, 2048 bits) packed to (n, 256) uint8."""
-    return pack_fingerprints(_MORGAN_GEN, mols, FP_BYTES, num_threads)
-
-
 class _Family:
     __slots__ = ("spec", "gen", "fps", "pop")
 
@@ -119,8 +106,10 @@ class _Family:
         self.pop = np.zeros(cap, dtype=np.uint16)
 
     def grow(self, cap: int, n: int) -> None:
-        fps = np.zeros((cap, self.spec.nbytes), dtype=np.uint8); fps[:n] = self.fps[:n]
-        pop = np.zeros(cap, dtype=np.uint16); pop[:n] = self.pop[:n]
+        fps = np.zeros((cap, self.spec.nbytes), dtype=np.uint8)
+        fps[:n] = self.fps[:n]
+        pop = np.zeros(cap, dtype=np.uint16)
+        pop[:n] = self.pop[:n]
         self.fps, self.pop = fps, pop
 
     def fill(self, start: int, mat: np.ndarray) -> None:
@@ -128,12 +117,13 @@ class _Family:
         self.pop[start : start + len(mat)] = np.bitwise_count(mat).sum(axis=1).astype(np.uint16)
 
 
-def _parse_query(query: str, kind: QueryKind):
+def _parse_query(query: str, kind: QueryKind) -> Chem.Mol:
     parser = _PARSERS.get(kind)
     if parser is None:
         raise StructureError(f"unknown query kind {kind!r}")
     try:
-        q = parser(query)
+        with rdBase.BlockLogs():
+            q = parser(query)
     except (ValueError, RuntimeError):
         q = None
     if q is None:
@@ -141,14 +131,20 @@ def _parse_query(query: str, kind: QueryKind):
     return q
 
 
-def _generalize(q, query: str, kind: QueryKind):
+def _generalize(q: Chem.Mol, query: str, kind: QueryKind) -> Chem.Mol:
     try:   # positional: doEnumeration=True, doTautomers=True, adjustQueryProperties=False (the cartridge's defaults)
-        return CreateExtendedQueryMol(q, True, True, False)
+        with rdBase.BlockLogs():
+            return CreateExtendedQueryMol(q, True, True, False)
     except (ValueError, RuntimeError) as exc:
         raise StructureError(f"cannot build a generalized query from {kind} {query!r}: {exc}") from exc
 
 
 class StructureIndex:
+    """Positions 0..n-1 of an append-only RDKit library plus one packed fingerprint matrix per family.
+    An id maps to its latest position; older positions of the same id, and deleted ids, are dead in
+    `_live` and skipped by every search. `add_batch` and `mark_dead` are idempotent per row version,
+    so replaying a change log is safe. Vault owns one of these; callers normally do not touch it."""
+
     def __init__(self, families: Sequence[FingerprintSpec] = DEFAULT_FAMILIES) -> None:
         if not families:
             raise ValueError("an index needs at least one fingerprint family")
@@ -174,6 +170,7 @@ class StructureIndex:
 
     @property
     def families(self) -> tuple[FingerprintSpec, ...]:
+        """Registered families, in registration order."""
         return tuple(f.spec for f in self._fams.values())
 
     def _family(self, name: str) -> _Family:
@@ -196,6 +193,7 @@ class StructureIndex:
         self._fams[spec.name] = fam
 
     def drop_family(self, name: str) -> None:
+        """Forget a family and free its matrix; the last one cannot go."""
         self._family(name)
         if len(self._fams) == 1:
             raise ValueError("cannot drop the last fingerprint family")
@@ -232,9 +230,11 @@ class StructureIndex:
 
     @property
     def positions(self) -> int:
+        """Positions ever appended, live or dead; len(self) counts only the live ones."""
         return self._n
 
     def has(self, id: UUID, row_version: int) -> bool:
+        """True once `id` has been applied at `row_version` or a newer one."""
         return self._row_versions.get(id, 0) >= row_version
 
     def _ensure_capacity(self, extra: int) -> None:
@@ -242,7 +242,8 @@ class StructureIndex:
         if need <= self._cap:
             return
         cap = max(need, self._cap * 2, 1024)
-        live = np.zeros(cap, dtype=bool); live[: self._n] = self._live[: self._n]
+        live = np.zeros(cap, dtype=bool)
+        live[: self._n] = self._live[: self._n]
         self._live, self._cap = live, cap
         for f in self._fams.values():
             f.grow(cap, self._n)
@@ -305,7 +306,7 @@ class StructureIndex:
 
     # ----- substructure -----
 
-    def _ez_chiral_hits(self, plain: Chem.Mol, q, generalized: bool, num_threads: int) -> list[int]:
+    def _ez_chiral_hits(self, plain: Chem.Mol, q: Chem.Mol, generalized: bool, num_threads: int) -> list[int]:
         """Positions matching a query with double-bond stereo under chirality. CachedTrustedSmilesMolHolder
         never assigns bond stereo to its targets, so the library cannot check E/Z: search without
         chirality (a superset), then re-check each hit on a fully parsed molecule."""
@@ -320,7 +321,8 @@ class StructureIndex:
                 keep.append(pos)
         return keep
 
-    def _query(self, query: str, kind: QueryKind, generalized: bool, use_chirality: bool, num_threads: int):
+    def _query(self, query: str, kind: QueryKind, generalized: bool, use_chirality: bool,
+               num_threads: int) -> tuple[Chem.Mol, Chem.Mol, bool]:
         plain = _parse_query(query, kind)
         q = _generalize(plain, query, kind) if generalized else plain
         self._ensure_patterns(num_threads)
@@ -338,6 +340,8 @@ class StructureIndex:
 
     def substructure(self, query: str, kind: QueryKind = "smiles", max_results: int | None = None,
                      num_threads: int = -1, *, generalized: bool = False, use_chirality: bool = False) -> list[UUID]:
+        """Ids of live structures containing `query`, in position order. `generalized` matches tautomers
+        and enumerated forms; `use_chirality` makes stereo in the query mandatory in the match."""
         if len(self) == 0:
             return []
         plain, q, ez = self._query(query, kind, generalized, use_chirality, num_threads)
@@ -350,6 +354,7 @@ class StructureIndex:
 
     def count_substructure(self, query: str, kind: QueryKind = "smiles", num_threads: int = -1, *,
                            generalized: bool = False, use_chirality: bool = False) -> int:
+        """How many live structures contain `query`; same options as substructure."""
         if len(self) == 0:
             return 0
         plain, q, ez = self._query(query, kind, generalized, use_chirality, num_threads)
@@ -377,12 +382,14 @@ class StructureIndex:
 
     # ----- similarity -----
 
-    def similar(self, query_smiles: str, threshold: float = 0.7, top_k: int | None = None, *,
+    def similar(self, query: str, threshold: float = 0.7, top_k: int | None = None, *,
                 family: str = MORGAN2.name, metric: Metric = tanimoto) -> list[tuple[UUID, float]]:
+        """(id, score) for live structures scoring at least `threshold` against the SMILES `query` under
+        `metric` on `family`, best first; `top_k` keeps the k best. One pass over the packed matrix."""
         fam = self._family(family)
         if len(self) == 0:
             return []
-        q = _parse_query(query_smiles, "smiles")
+        q = _parse_query(query, "smiles")
         qfp = pack_fingerprints(fam.gen, [q], fam.spec.nbytes)[0]
         qpop = int(np.bitwise_count(qfp).sum())
         q64 = qfp.view(np.uint64)
@@ -402,6 +409,7 @@ class StructureIndex:
     # ----- serialization (the snapshot module encrypts these parts) -----
 
     def to_parts(self) -> dict[str, bytes]:
+        """Named byte strings that from_parts rebuilds the index from; `meta` lists the others."""
         n = self._n
         fams = [{"name": f.spec.name, "bits": f.spec.bits} for f in self._fams.values()]
         order = ["lib", "ids", "live", "rv"] + [f"fp:{f['name']}" for f in fams]

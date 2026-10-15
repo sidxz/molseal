@@ -15,6 +15,7 @@ import json
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import urlsplit
 
 from ..keys import KeyProviderError
@@ -25,7 +26,7 @@ class InfisicalKmsKeyProvider:
     base_url: str               # https://eu.infisical.com, https://us.infisical.com, or a self-hosted origin
     key_id: str                 # KMS key UUID (an encrypt/decrypt key)
     token: str = field(repr=False)   # bearer token
-    post: Callable[[str, dict], dict] | None = None   # (url, json body) -> json response; tests inject
+    post: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None   # (url, json body) -> json response; tests inject
 
     def __post_init__(self) -> None:
         u = urlsplit(self.base_url)
@@ -33,14 +34,15 @@ class InfisicalKmsKeyProvider:
             raise KeyProviderError("Infisical base_url must use https (the bearer token unwraps every tenant key); "
                                    "http is allowed only for a loopback host")
 
-    def _post(self, url: str, body: dict) -> dict:
+    def _post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
         if self.post is not None:
             return self.post(url, body)
         req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
                                      headers={"Content-Type": "application/json",
                                               "Authorization": f"Bearer {self.token}"})
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.load(resp)
+            doc: dict[str, Any] = json.load(resp)
+        return doc
 
     def _url(self, op: str) -> str:
         return f"{self.base_url.rstrip('/')}/api/v1/kms/keys/{self.key_id}/{op}"

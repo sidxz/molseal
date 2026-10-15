@@ -20,11 +20,12 @@ from typing import Protocol
 from uuid import UUID
 
 from .crypto import NONCE_LEN, TAG_LEN, SealError, key_aad, open_sealed, seal
+from .errors import MolsealError
 
 KEY_LEN = 32
 
 
-class KeyProviderError(Exception):
+class KeyProviderError(MolsealError):
     """The provider could not wrap or unwrap: wrong key, altered blob, label mismatch, or service failure."""
 
 
@@ -137,13 +138,17 @@ def provider_from_spec(spec: str) -> KeyProvider:
 
 @dataclass(frozen=True)
 class TenantKeys:
-    data_key: bytes
+    """The unwrapped per-tenant secrets a Vault holds in memory. The secrets stay out of repr so a
+    traceback or log line never prints them."""
+
+    data_key: bytes = field(repr=False)
     data_key_version: int
-    hmac_key: bytes
+    hmac_key: bytes = field(repr=False)
     hmac_key_version: int
 
 
 def new_tenant_secret() -> bytes:
+    """A fresh 32-byte data or HMAC key."""
     return os.urandom(KEY_LEN)
 
 

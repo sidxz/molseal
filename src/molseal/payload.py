@@ -1,26 +1,38 @@
-"""The authenticated contents of a structure row, before padding and encryption."""
+"""The authenticated contents of a structure row, before padding and encryption.
+
+The wire form is canonical JSON (sorted keys, no whitespace, ASCII), so equal payloads give equal bytes.
+Decoding validates every field: the bytes were authenticated, but a build that wrote them differently
+must fail loudly rather than hand back a half-read payload."""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+
+from pydantic import Field, ValidationError
+from pydantic.dataclasses import dataclass
+
+from .errors import MolsealError
 
 PAYLOAD_VERSION = 1
 
 
-class PayloadError(Exception):
-    pass
+class PayloadError(MolsealError):
+    """Decrypted bytes are not a payload this build reads: not JSON, another version, or a bad field."""
 
 
 @dataclass(frozen=True)
 class Payload:
+    """What a row holds once decrypted. `keys` are the caller's exact lookup keys, kind -> value, as
+    given to Vault.put. `deleted` marks a tombstone; the vault's read methods never return one, so a
+    caller only meets it through `decode`."""
+
     smiles: str
-    keys: dict[str, str] = field(default_factory=dict)
+    keys: dict[str, str] = Field(default_factory=dict)
     deleted: bool = False
 
 
 def encode(p: Payload) -> bytes:
-    doc = {"v": PAYLOAD_VERSION, "smiles": p.smiles, "keys": dict(p.keys), "deleted": bool(p.deleted)}
+    doc = {"v": PAYLOAD_VERSION, "smiles": p.smiles, "keys": dict(p.keys), "deleted": p.deleted}
     return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
 
 
@@ -32,10 +44,6 @@ def decode(b: bytes) -> Payload:
     if not isinstance(doc, dict) or doc.get("v") != PAYLOAD_VERSION:
         raise PayloadError("unknown payload version")
     try:
-        return Payload(
-            smiles=str(doc["smiles"]),
-            keys={str(k): str(v) for k, v in doc["keys"].items()},
-            deleted=bool(doc["deleted"]),
-        )
-    except (KeyError, AttributeError, TypeError) as exc:
-        raise PayloadError("payload is missing a field") from exc
+        return Payload(smiles=doc["smiles"], keys=doc["keys"], deleted=doc["deleted"])
+    except (KeyError, ValidationError) as exc:
+        raise PayloadError(f"payload has a missing or malformed field: {exc}") from exc

@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy import (BigInteger, Boolean, Column, DateTime, Integer, LargeBinary, MetaData, String,
                         Table, Uuid, delete, func, insert, select, update)
+
+from .errors import MolsealError
 
 metadata = MetaData()
 
@@ -61,6 +63,8 @@ structure_keys = Table(
 
 @dataclass(frozen=True)
 class TenantRow:
+    """The tenant's cursor and current key versions, as read when a Vault opens."""
+
     tenant_id: UUID
     seq_cursor: int
     data_key_version: int
@@ -69,6 +73,8 @@ class TenantRow:
 
 @dataclass(frozen=True)
 class WrappedKey:
+    """One tenant key row: `kind` is 'data' or 'hmac', `wrapped` is the provider's opaque blob."""
+
     kind: str
     version: int
     wrapped: bytes
@@ -76,6 +82,8 @@ class WrappedKey:
 
 @dataclass(frozen=True)
 class StructureRecord:
+    """One structures row as stored: ciphertext and the plaintext columns the label binds."""
+
     tenant_id: UUID
     id: UUID
     row_version: int
@@ -86,30 +94,66 @@ class StructureRecord:
     seq: int = 0
 
 
-class VersionConflict(Exception):
+class VersionConflict(MolsealError):
     """put_structure found a row_version other than the one the caller read."""
 
 
 class StructureStore(Protocol):
-    def ensure_tenant(self, tenant_id: UUID) -> TenantRow: ...
-    def seq_cursor(self, tenant_id: UUID) -> int: ...
-    def get_tenant_keys(self, tenant_id: UUID) -> list[WrappedKey]: ...
-    def put_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None: ...
-    def replace_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None: ...
-    def list_tenants(self) -> list[UUID]: ...
+    """What a Vault needs from storage. SqlStore is the SQLAlchemy implementation; another backend must
+    keep two guarantees: `put_structure(s)` assigns sequence numbers in commit order under a per-tenant
+    lock, and every write is compare-and-set on the row version."""
+
+    def create_tables(self) -> None:
+        """Create any missing tables; a no-op when they exist."""
+
+    def ensure_tenant(self, tenant_id: UUID) -> TenantRow:
+        """The tenant row, created with cursor 0 and key versions 1 when absent."""
+
+    def seq_cursor(self, tenant_id: UUID) -> int:
+        """The last sequence number handed out for the tenant."""
+
+    def get_tenant_keys(self, tenant_id: UUID) -> list[WrappedKey]:
+        """Every wrapped key row of the tenant, ordered by kind then version."""
+
+    def put_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None:
+        """Insert key rows; a duplicate (kind, version) is an error."""
+
+    def replace_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None:
+        """In one transaction, delete every key row of the tenant and insert `keys`."""
+
+    def list_tenants(self) -> list[UUID]:
+        """Every tenant id, sorted."""
+
     def put_structure(self, rec: StructureRecord, key_hmacs: dict[str, bytes],
-                      expected_row_version: int | None) -> int: ...
-    def get_structures(self, tenant_id: UUID, ids: list[UUID]) -> dict[UUID, StructureRecord]: ...
-    def put_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes], int | None]]) -> list[int]: ...
-    def get_structure(self, tenant_id: UUID, id: UUID) -> StructureRecord | None: ...
+                      expected_row_version: int | None) -> int:
+        """Write one row; see put_structures. Returns its sequence number."""
+
+    def put_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes], int | None]]) -> list[int]:
+        """Write a batch of one tenant's rows in one transaction, each compared against the row version
+        the caller read (None: no row). Raises VersionConflict and writes nothing on any mismatch.
+        Returns consecutive, commit-ordered sequence numbers."""
+
+    def get_structure(self, tenant_id: UUID, id: UUID) -> StructureRecord | None:
+        """One row, live or tombstoned, or None when the id was never written."""
+
+    def get_structures(self, tenant_id: UUID, ids: list[UUID]) -> dict[UUID, StructureRecord]:
+        """The rows among `ids` that exist, keyed by id."""
+
     def changes_since(self, tenant_id: UUID, seq: int, limit: int = 10000,
-                      upto: int | None = None) -> list[StructureRecord]: ...
-    def tenant_state(self, tenant_id: UUID) -> tuple[int, int]: ...
-    def max_seq(self, tenant_id: UUID) -> int: ...
-    def find_by_key(self, tenant_id: UUID, kind: str, hmac: bytes) -> list[UUID]: ...
+                      upto: int | None = None) -> list[StructureRecord]:
+        """Rows with sequence number above `seq` (and at most `upto`), ascending, at most `limit`."""
+
+    def tenant_state(self, tenant_id: UUID) -> tuple[int, int]:
+        """(seq_cursor, live_count) read together, so the count is exact at that cursor."""
+
+    def max_seq(self, tenant_id: UUID) -> int:
+        """The highest sequence number among the tenant's rows, 0 when there are none."""
+
+    def find_by_key(self, tenant_id: UUID, kind: str, hmac: bytes) -> list[UUID]:
+        """Ids of live rows whose exact key `kind` hashes to `hmac`."""
 
 
-def _record(row) -> StructureRecord:
+def _record(row: sa.Row[Any]) -> StructureRecord:
     return StructureRecord(
         tenant_id=row.tenant_id, id=row.id, row_version=row.row_version,
         data_key_version=row.data_key_version, nonce=row.nonce, ciphertext=row.ciphertext,
@@ -117,11 +161,14 @@ def _record(row) -> StructureRecord:
     )
 
 
-def _key_rows(tenant_id: UUID, keys: list[WrappedKey]) -> list[dict]:
+def _key_rows(tenant_id: UUID, keys: list[WrappedKey]) -> list[dict[str, Any]]:
     return [dict(tenant_id=tenant_id, kind=k.kind, version=k.version, wrapped=k.wrapped) for k in keys]
 
 
 class SqlStore:
+    """StructureStore on SQLAlchemy Core. Tested on PostgreSQL and SQLite; any backend with RETURNING
+    and row locks on UPDATE should work."""
+
     def __init__(self, engine: sa.Engine) -> None:
         self.engine = engine
 
@@ -139,7 +186,7 @@ class SqlStore:
 
     def seq_cursor(self, tenant_id: UUID) -> int:
         with self.engine.connect() as conn:
-            return conn.execute(select(tenants.c.seq_cursor).where(tenants.c.tenant_id == tenant_id)).scalar_one()
+            return int(conn.execute(select(tenants.c.seq_cursor).where(tenants.c.tenant_id == tenant_id)).scalar_one())
 
     def get_tenant_keys(self, tenant_id: UUID) -> list[WrappedKey]:
         with self.engine.connect() as conn:
@@ -164,42 +211,7 @@ class SqlStore:
 
     def put_structure(self, rec: StructureRecord, key_hmacs: dict[str, bytes],
                       expected_row_version: int | None) -> int:
-        """One transaction: bump the tenant cursor (row lock to commit), compare-and-set on row_version,
-        upsert the row, adjust the tenant's live count, replace its keys.
-
-        expected_row_version is what the caller read (None: no row). Any other current value raises
-        VersionConflict and the transaction rolls back. The cursor lock serializes every writer of the
-        tenant, so the read below cannot go stale before commit."""
-        with self.engine.begin() as conn:
-            seq = conn.execute(
-                update(tenants).where(tenants.c.tenant_id == rec.tenant_id)
-                .values(seq_cursor=tenants.c.seq_cursor + 1).returning(tenants.c.seq_cursor)
-            ).scalar_one()
-            cur = conn.execute(select(structures.c.row_version, structures.c.deleted)
-                               .where(structures.c.tenant_id == rec.tenant_id, structures.c.id == rec.id)).first()
-            if (None if cur is None else cur.row_version) != expected_row_version:
-                raise VersionConflict(f"{rec.id}: expected row_version {expected_row_version}, "
-                                      f"found {None if cur is None else cur.row_version}")
-            delta = int(not rec.deleted) - int(cur is not None and not cur.deleted)
-            if delta:
-                conn.execute(update(tenants).where(tenants.c.tenant_id == rec.tenant_id)
-                             .values(live_count=tenants.c.live_count + delta))
-            values = dict(row_version=rec.row_version, data_key_version=rec.data_key_version,
-                          nonce=rec.nonce, ciphertext=rec.ciphertext, deleted=rec.deleted, seq=seq,
-                          updated_at=datetime.now(timezone.utc))
-            if cur is not None:
-                conn.execute(update(structures)
-                             .where(structures.c.tenant_id == rec.tenant_id, structures.c.id == rec.id)
-                             .values(**values))
-            else:
-                conn.execute(insert(structures).values(tenant_id=rec.tenant_id, id=rec.id, **values))
-            conn.execute(delete(structure_keys)
-                         .where(structure_keys.c.tenant_id == rec.tenant_id, structure_keys.c.id == rec.id))
-            if key_hmacs:
-                conn.execute(insert(structure_keys), [
-                    dict(tenant_id=rec.tenant_id, id=rec.id, kind=kind, hmac=h) for kind, h in key_hmacs.items()
-                ])
-            return int(seq)
+        return self.put_structures([(rec, key_hmacs, expected_row_version)])[0]
 
     def get_structures(self, tenant_id: UUID, ids: list[UUID]) -> dict[UUID, StructureRecord]:
         if not ids:
@@ -212,8 +224,10 @@ class SqlStore:
     def put_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes], int | None]]) -> list[int]:
         """One transaction for a whole batch: the cursor advances by the batch size (holding the tenant
         lock to commit, so the numbers stay consecutive and commit-ordered), every row is compare-and-set
-        against its expected version, new rows are bulk-inserted, existing rows updated, the live count
-        adjusted once, and key rows replaced. Any conflict rolls the whole batch back."""
+        against the version the caller read (None: no row), new rows are bulk-inserted, existing rows
+        updated, the live count adjusted once, and key rows replaced. Any conflict raises VersionConflict
+        and rolls the whole batch back. The cursor lock serializes every writer of the tenant, so the
+        version read below cannot go stale before commit."""
         if not batch:
             return []
         ids = [rec.id for rec, _, _ in batch]
@@ -290,12 +304,6 @@ class SqlStore:
         with self.engine.connect() as conn:
             return int(conn.execute(select(func.coalesce(func.max(structures.c.seq), 0))
                                     .where(structures.c.tenant_id == tenant_id)).scalar_one())
-
-    def live_count(self, tenant_id: UUID) -> int:
-        with self.engine.connect() as conn:
-            return int(conn.execute(select(func.count())
-                                    .where(structures.c.tenant_id == tenant_id, structures.c.deleted == sa.false())
-                                    ).scalar_one())
 
     def find_by_key(self, tenant_id: UUID, kind: str, hmac: bytes) -> list[UUID]:
         j = structure_keys.join(structures, sa.and_(structures.c.tenant_id == structure_keys.c.tenant_id,

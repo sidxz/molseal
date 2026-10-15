@@ -14,8 +14,8 @@ from pathlib import Path
 
 import sqlalchemy as sa
 
+from bench import leak
 from bench.load_molseal import load
-from molseal import cli
 from molseal.keys import FileKeyProvider, generate_key_file
 from molseal.store import SqlStore
 
@@ -53,17 +53,17 @@ def main() -> int:
     progress.unlink(missing_ok=True)
     stats = load(slice_path, store, FileKeyProvider(key), tenant, progress_path=progress)
     sidecar = str(slice_path.with_name(slice_path.name + ".ids.tsv"))
-    common = ["--db", DB, "--key", str(key), "--tenant", str(tenant)]
+    common = ["--db", DB, "--tenant", str(tenant)]
     log_path = RESULTS / "gate_10k_pg.log"
     log_statements = capture_log(log_path)                        # before the control row is planted
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc1 = cli.main(["absence-check", sidecar, "--log", str(log_path), *common])   # plants the control row
+        rc1 = leak.main(["absence-check", sidecar, "--log", str(log_path), *common])   # plants the control row
     print(buf.getvalue(), end="")
     log_hits = json.loads(buf.getvalue())["log_hits"]
     run_dump(RESULTS / "dump_10k.sql")
-    rc2 = cli.main(["absence-check", sidecar, "--dump", str(RESULTS / "dump_10k.sql"), *common])
-    rc3 = cli.main(["leak-report", sidecar, *common])
+    rc2 = leak.main(["absence-check", sidecar, "--dump", str(RESULTS / "dump_10k.sql"), *common])
+    rc3 = leak.main(["leak-report", sidecar, *common])
     ok = rc1 == 0 and rc2 == 0 and rc3 == 0 and log_statements > 0
     (RESULTS / "gate_10k.json").write_text(json.dumps({"load": stats, "absence_db": rc1, "absence_dump": rc2,
                                                       "log_statements": log_statements, "log_hits": log_hits,

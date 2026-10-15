@@ -3,7 +3,7 @@ name = "molseal"
 version = "0.0.1"
 description = "Encrypted chemical structure store with in-process RDKit search"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 license = "BSD-3-Clause"
 dependencies = [
   "rdkit==2025.3.3",
@@ -11,6 +11,7 @@ dependencies = [
   "numpy>=2.0",
   "sqlalchemy>=2.0",
   "psycopg[binary]>=3.2",
+  "pydantic>=2.7",
 ]
 
 [project.optional-dependencies]
@@ -22,7 +23,10 @@ azure = ["azure-keyvault-keys>=4.9", "azure-identity>=1.17"]
 molseal = "molseal.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "mypy>=1.14",
+    "pytest>=8",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -33,3 +37,12 @@ packages = ["src/molseal"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+files = ["src"]
+strict = true
+
+[[tool.mypy.overrides]]
+# RDKit ships no stubs; the vendor SDKs are optional extras
+module = ["rdkit.*", "boto3", "google.cloud.*", "azure.*"]
+ignore_missing_imports = true

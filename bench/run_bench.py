@@ -68,7 +68,7 @@ def cold_check(engine: sa.Engine) -> int:
 
 def run_molseal(vault: Vault, queries: dict, rejected: set[uuid.UUID], threads: int, repeats: int, end_to_end: bool) -> list[dict]:
     vault.num_threads = threads
-    idx = vault.index
+    idx = vault._index      # engine timings bypass the vault lock and tenant-state read on purpose; e2e below includes them
     rows = []
     base = {"side": "molseal", "threads": threads, "repeats": repeats}
     for sq in queries["substructure"]:

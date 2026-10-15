@@ -45,9 +45,9 @@ def test_canonicalize_round_trips_and_rejects_garbage():
         engine.canonicalize("not a molecule")
 
 
-def test_morgan_matrix_shape_and_known_bit_count():
-    m = engine.morgan_matrix([Chem.MolFromSmiles("CCO")])
-    assert m.shape == (1, engine.FP_BYTES) and m.dtype.name == "uint8"
+def test_default_family_packs_to_256_bytes_with_a_known_bit_count():
+    m = engine.pack_fingerprints(engine.MORGAN2.generator(), [Chem.MolFromSmiles("CCO")], engine.MORGAN2.nbytes)
+    assert m.shape == (1, engine.MORGAN2.nbytes) and m.dtype.name == "uint8"
     assert 1 <= int(np.bitwise_count(m).sum()) <= 20
 
 
@@ -298,7 +298,7 @@ def test_fingerprints_follow_the_order_given_and_skip_unknown(index, dataset):
     want = [ids[3], uuid4(), ids[1]]
     found, mat = index.fingerprints(want)
     assert found == [ids[3], ids[1]]
-    assert np.array_equal(mat, engine.morgan_matrix([mols[3], mols[1]]))
+    assert np.array_equal(mat, engine.pack_fingerprints(engine.MORGAN2.generator(), [mols[3], mols[1]], engine.MORGAN2.nbytes))
     found, mat = index.fingerprints([])
     assert found == [] and mat.shape == (0, 256)
 

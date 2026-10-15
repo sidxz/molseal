@@ -400,7 +400,10 @@ hydrogens added by a sketcher do not become required query atoms.
 
 `find_exact(kind, value)` retrieves records by a caller-supplied exact key. The library does not
 define chemical identity or automatically generate those keys; their meaning depends on the
-application's registration and standardization policy.
+application's registration and standardization policy. A deployment without a registry can use the
+structure itself as the key: register with `vault.put(id, smiles, {"smiles": canonicalize(smiles)})`
+and look up with `vault.find_exact("smiles", canonicalize(query))`, where `molseal.canonicalize` is
+the same function `put` applies before encrypting.
 
 Bulk access supports downstream analysis:
 
@@ -437,7 +440,7 @@ not. Ten gates cover fingerprint bytes, substructure matching, similarity for ea
 generalized and chirality-aware matching, and molblock queries. A benchmark run publishes results
 only when every gate passes.
 
-Confidentiality is assessed with an absence check. It searches for every stored structure and exact
+Confidentiality is assessed with an absence check (`bench/leak.py`). It searches for every stored structure and exact
 key in the database columns, in a `pg_dump` output, and in a statement log, using a planted control
 record that each search must detect. A leakage report measures how much the ciphertext size class
 reveals about molecular size.
@@ -450,8 +453,8 @@ and leakage report are available under [`docs/results/`](docs/results/README.md)
 
 ### 7.1 Environment
 
-The project requires Python 3.13 or later. Dependencies include RDKit, NumPy, SQLAlchemy, psycopg,
-and cryptography. From a local checkout, install the project with:
+The project requires Python 3.12 or later. Dependencies include RDKit, NumPy, SQLAlchemy, psycopg,
+cryptography, and Pydantic. From a local checkout, install the project with:
 
 ```bash
 pip install .
@@ -468,11 +471,13 @@ docker compose up -d db
 
 This starts PostgreSQL on port 5439. SQLite can be used for a self-contained local example.
 
-### 7.2 Minimal example
+### 7.2 Example
 
-The following example uses a temporary directory so that it can be run without a PostgreSQL server.
-For a persistent deployment, use one fixed tenant identifier kept in configuration and store the key
-separately from the database host and its backups.
+The walkthrough below runs as is on SQLite in a temporary directory and exercises every public
+operation: registration, substructure and similarity search, exact lookup, bulk reads, edits,
+deletion, error handling, and snapshots. For a deployment, use a PostgreSQL URL such as
+`postgresql+psycopg://user:password@host/database`, keep one fixed tenant UUID in configuration,
+and store the key file, or a key-service reference, away from the database host and its backups.
 
 ```python
 import uuid
@@ -480,49 +485,96 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import sqlalchemy as sa
+from rdkit import Chem
 
-from molseal import keys, metrics
-from molseal.engine import FEATMORGAN2, MORGAN2
-from molseal.store import SqlStore
-from molseal.vault import Vault
+from molseal import (FEATMORGAN2, MORGAN2, FileKeyProvider, MolsealError, SqlStore, StructureError,
+                     Vault, canonicalize, generate_key_file, metrics)
+
+DRUGS = {
+    "aspirin": "CC(=O)Oc1ccccc1C(=O)O",
+    "salicylic acid": "O=C(O)c1ccccc1O",
+    "paracetamol": "CC(=O)Nc1ccc(O)cc1",
+    "ibuprofen": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+    "caffeine": "Cn1cnc2c1c(=O)n(C)c(=O)n2C",
+}
+
+
+def inchikey(smiles: str) -> str:       # the application computes exact keys; the library never does
+    return Chem.MolToInchiKey(Chem.MolFromSmiles(smiles))
+
 
 with TemporaryDirectory() as directory:
     root = Path(directory)
-    key_path = root / "molseal.key"
-    keys.generate_key_file(key_path)
 
-    engine = sa.create_engine(f"sqlite:///{root / 'structures.db'}")
-    store = SqlStore(engine)
+    # --- open ----------------------------------------------------------------------------------
+    key_path = root / "molseal.key"
+    generate_key_file(key_path)                      # 32 random bytes, mode 600
+    tenant = uuid.UUID("3f6f0f8e-9c7e-4b1c-9a2a-0d9c1f2e3a4b")   # the unit of key scope; keep it in config
+    store = SqlStore(sa.create_engine(f"sqlite:///{root / 'structures.db'}"))
     store.create_tables()
     vault = Vault(
         store,
-        keys.FileKeyProvider(key_path),        # or e.g. AzureKeyVaultKeyProvider(
-                                               #   "https://<vault>.vault.azure.net/keys/<name>")
-        tenant_id=uuid.uuid4(),
+        FileKeyProvider(key_path),                   # or provider_from_spec("aws:alias/molseal"), see §4.3
+        tenant,
         snapshot_dir=root / "snapshots",
-        families=(MORGAN2, FEATMORGAN2),
+        families=(MORGAN2, FEATMORGAN2),             # fingerprint families the index carries
     )
 
-    compound_id = uuid.uuid4()
-    smiles = "CC(=O)Oc1ccccc1C(=O)O"
-    inchikey = "BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
-    vault.put(compound_id, smiles, {"inchikey": inchikey})
+    # --- register ------------------------------------------------------------------------------
+    ids = {name: uuid.uuid4() for name in DRUGS}
+    vault.put(ids["aspirin"], DRUGS["aspirin"],
+              keys={"inchikey": inchikey(DRUGS["aspirin"]), "name": "aspirin"})
+    vault.put_many((ids[n], s, {"inchikey": inchikey(s), "name": n})     # bulk: one transaction per chunk
+                   for n, s in DRUGS.items() if n != "aspirin")
+    assert len(vault) == 5
 
-    substructure_hits = vault.substructure("c1ccccc1C(=O)O")
-    similarity_hits = vault.similar(smiles, threshold=0.7)
-    feature_hits = vault.similar(smiles, threshold=0.55, family="featmorgan2")
-    containment_hits = vault.similar(smiles, threshold=0.7, metric=metrics.tversky(1, 0))
-    exact_hits = vault.find_exact("inchikey", inchikey)
+    # --- substructure --------------------------------------------------------------------------
+    ring_oxygen = vault.substructure("c1ccccc1O")                 # aspirin, salicylic acid, paracetamol
+    acids = vault.substructure("[CX3](=O)[OX2H1]", kind="smarts")  # aspirin, salicylic acid, ibuprofen
+    first_two = vault.substructure("c1ccccc1", max_results=2)
+    assert vault.count_substructure("c1ccccc1") == 4
+    # generalized=True also matches tautomers; use_chirality=True makes the query's stereo mandatory;
+    # kind="molblock" takes a sketcher's drawing
 
-    payloads = vault.get_many([compound_id])
-    found, fingerprints = vault.fingerprints([compound_id], family="morgan2")
-    vault.save_snapshot()
-    engine.dispose()
+    # --- similarity ----------------------------------------------------------------------------
+    hits = vault.similar(DRUGS["aspirin"], threshold=0.3)          # Morgan r2 Tanimoto: aspirin 1.0, salicylic acid 0.45
+    best_two = vault.similar(DRUGS["aspirin"], threshold=0.0, top_k=2)
+    scaffold_hops = vault.similar(DRUGS["aspirin"], threshold=0.3, family="featmorgan2")
+    containing = vault.similar("O=C(O)c1ccccc1", threshold=0.7,    # Tversky(1, 0): how much of the query
+                               metric=metrics.tversky(1, 0))       # each structure contains
+    assert [i for i, _ in hits] == [ids["aspirin"], ids["salicylic acid"]]
+
+    # --- exact lookup --------------------------------------------------------------------------
+    assert vault.find_exact("inchikey", inchikey(DRUGS["caffeine"])) == [ids["caffeine"]]
+    assert vault.find_exact("name", "ibuprofen") == [ids["ibuprofen"]]
+    # Without a registry, the structure itself is a key:
+    #   vault.put(id, smiles, keys={"smiles": canonicalize(smiles)})
+    #   vault.find_exact("smiles", canonicalize(query))
+
+    # --- read back -----------------------------------------------------------------------------
+    payload = vault.get(ids["aspirin"])
+    assert payload.smiles == canonicalize(DRUGS["aspirin"]) and payload.keys["name"] == "aspirin"
+    payloads = vault.get_many(ids.values())                       # {id: Payload}; unknown and deleted ids absent
+    found, rows = vault.fingerprints(ids.values(), family="morgan2")   # (5, 256) uint8, for your own analytics
+
+    # --- edit, delete, errors ------------------------------------------------------------------
+    assert vault.put(ids["caffeine"], "Cn1c(=O)c2c(ncn2C)n(C)c1=O") == 2   # same id, row version 2
+    vault.delete(ids["ibuprofen"])
+    assert vault.get(ids["ibuprofen"]) is None and len(vault) == 4
+    try:
+        vault.put(uuid.uuid4(), "not a molecule")                # nothing is written
+    except StructureError as exc:
+        assert isinstance(exc, MolsealError)                      # every library error shares this base
+
+    # --- snapshot and reopen -------------------------------------------------------------------
+    vault.save_snapshot()                                         # encrypted under the tenant's data key
+    reopened = Vault(store, FileKeyProvider(key_path), tenant,
+                     snapshot_dir=root / "snapshots", families=(MORGAN2, FEATMORGAN2))
+    assert reopened.substructure("c1ccccc1O") == ring_oxygen      # loaded from the snapshot, then caught up
 ```
 
-To use PostgreSQL, construct the SQLAlchemy engine with a URL such as
-`postgresql+psycopg://user:password@localhost/database`. For bulk ingestion, pass an iterable of
-`(id, smiles, exact_keys)` tuples to `vault.put_many(rows)`.
+Every exception the library raises derives from `molseal.MolsealError`. The public names are listed
+in `molseal.__all__`, and the package ships `py.typed`.
 
 ### 7.3 Command-line interface
 
@@ -531,18 +583,21 @@ molseal keygen PATH
 molseal key-check                      # wrap and unwrap a throwaway secret through --key
 molseal rewrap --to SPEC [--all]       # re-wrap tenant keys under another provider
 molseal load FILE                      # one SMILES per line
-molseal search QUERY [--smarts] [--max N]
-molseal count QUERY [--smarts]
+molseal search QUERY [--kind smiles|smarts|molblock] [--generalized] [--chirality] [--max N]
+molseal count QUERY [--kind smiles|smarts|molblock] [--generalized] [--chirality]
 molseal similar SMILES [--threshold T] [--top K]
-molseal absence-check SIDECAR [--run-pg-dump] [--dump PATH] [--log PATH]
-molseal leak-report SIDECAR
 ```
+
+The evaluation tools are not part of the CLI. The absence check and the leak report run as
+`python -m bench.leak absence-check SIDECAR [--run-pg-dump] [--dump PATH] [--log PATH]` and
+`python -m bench.leak leak-report SIDECAR`, taking `--db` and `--tenant` only.
 
 Database commands accept `--db`, `--key`, `--tenant`, and `--snapshot-dir`, or the corresponding
 environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY`, `MOLSEAL_TENANT`, and
 `MOLSEAL_SNAPSHOT_DIR`. `--key` takes a provider specification: a file path (or `file:PATH`),
 `aws:KEY_ID`, `gcp:KEY_NAME`, `azure:KEY_URL`, or `infisical:BASE_URL/KEY_ID` with the bearer token in
-`MOLSEAL_INFISICAL_TOKEN`. `rewrap` reads the old provider from `--key` and the new one from `--to`;
+`MOLSEAL_INFISICAL_TOKEN`. `--kind` names the query language; `--generalized` matches tautomers and
+`--chirality` makes the query's stereo mandatory, as the library's `substructure` options do. `rewrap` reads the old provider from `--key` and the new one from `--to`;
 `key-check` proves a provider works before a vault is pointed at it. Key generation takes a file path
 and refuses to overwrite an existing key.
 
@@ -569,6 +624,7 @@ Install development dependencies and run the test suite with:
 ```bash
 uv sync
 uv run pytest
+uv run mypy          # strict; the configuration is in pyproject.toml
 ```
 
 Set `MOLSEAL_TEST_DATABASE_URL` to a PostgreSQL connection URL to include PostgreSQL store tests.
