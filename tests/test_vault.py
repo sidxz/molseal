@@ -4,7 +4,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import delete, update
 
-from molseal import crypto, engine, keys
+from molseal import engine, keys
 from molseal.payload import Payload
 from molseal.store import SqlStore, StructureRecord, VersionConflict, structure_keys, structures, tenant_keys, tenants
 from molseal.vault import NotFound, Vault, VaultError
