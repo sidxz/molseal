@@ -255,13 +255,45 @@ exact keys and belongs within the trusted environment.
 
 ### 4.3 Key management
 
-Each tenant has a data-encryption key and a separate HMAC key. Both are wrapped under a key-encryption
-key and stored with version identifiers. The supplied `FileKeyProvider` reads a 32-byte key from a
-file. The `KeyProvider` interface allows other providers, but built-in
-KMS integrations and key rotation are not implemented.
+Each tenant has a data-encryption key and a separate HMAC key, both random 32-byte secrets generated
+in the application. They are stored wrapped under a key-encryption key (KEK) that a `KeyProvider`
+controls. The library binds the tenant identifier, key type and version into every wrapped key and
+checks them on unwrap, so a key row moved to another tenant, type or version does not open, whichever
+provider is configured.
+
+Two provider models are supported.
+
+| Model | Where the KEK lives | Providers |
+|---|---|---|
+| In-process | In application memory, loaded from a file or fetched from a secrets manager by the application's own client | `FileKeyProvider`, `RawKeyProvider` |
+| Key service | In a key management service that wraps and unwraps on request and never releases the key | `AwsKmsKeyProvider`, `GcpKmsKeyProvider`, `AzureKeyVaultKeyProvider`, `InfisicalKmsKeyProvider` |
+
+With a key service the KEK never enters the application process. Only the tenant keys do, and they
+must, because they encrypt rows and hash exact keys. Revoking the application's access stops any new
+process from opening the vault, and every wrap and unwrap appears in the service's audit log. The AWS
+and Google providers pass the tenant label as an encryption context or associated data; Azure Key Vault
+and Infisical accept none, which the library-side binding covers. The cloud providers are optional
+extras (`molseal[aws]`, `molseal[gcp]`, `molseal[azure]`); the Infisical provider uses the standard
+library.
+
+`rewrap_tenant`, and the `molseal rewrap` command, re-wrap a tenant's keys under another provider.
+This serves KEK rotation and migration from a file to a service. Each new wrapped key is verified
+before the key rows are replaced in one transaction, no structure row is touched, and running
+processes keep working because they hold the unwrapped tenant keys. Rotation of the tenant keys
+themselves, which re-encrypts rows, is not implemented; the version columns anticipate it.
+
+Every deployment names at least one tenant. The tenant identifier is the unit of key scope (data key,
+HMAC key, change cursor and live count), not an opt-in multi-tenancy feature. A single-tenant
+deployment uses one fixed UUID kept in configuration next to the database URL. The identifier is an
+address, not a secret: it is stored in the clear and can be recovered from the `tenants` table.
+
+In rising order of damage: database access alone exposes the metadata of §4.2; the HMAC key in
+addition allows testing whether a known identifier is present; a tenant's data key decrypts that
+tenant's rows and snapshots and nothing else; the KEK, or the service access that stands in for it,
+unwraps every tenant's keys.
 
 Encryption uses randomly generated nonces. The implementation does not enforce a per-key encryption
-budget or automatically rotate keys; version fields provide a foundation for future rotation work.
+budget.
 
 ## 5. Chemical search methods
 
@@ -417,6 +449,9 @@ and cryptography. From a local checkout, install the project with:
 pip install .
 ```
 
+Key service providers are optional extras: `pip install ".[aws]"`, `".[gcp]"` or `".[azure]"`. The
+Infisical provider needs no extra.
+
 For development, use `uv sync`. PostgreSQL integration tests can use the supplied development service:
 
 ```bash
@@ -428,7 +463,7 @@ This starts PostgreSQL on port 5439. SQLite can be used for a self-contained loc
 ### 7.2 Minimal example
 
 The following example uses a temporary directory so that it can be run without a PostgreSQL server.
-For a persistent deployment, retain a stable tenant identifier and store the key separately from the
+For a persistent deployment, use one fixed tenant identifier kept in configuration and store the key separately from the
 database host and its backups.
 
 ```python
@@ -453,7 +488,7 @@ with TemporaryDirectory() as directory:
     store.create_tables()
     vault = Vault(
         store,
-        keys.FileKeyProvider(key_path),
+        keys.FileKeyProvider(key_path),        # or e.g. AzureKeyVaultKeyProvider("https://<vault>.vault.azure.net/keys/<name>")
         tenant_id=uuid.uuid4(),
         snapshot_dir=root / "snapshots",
         families=(MORGAN2, FEATMORGAN2),
@@ -484,6 +519,8 @@ To use PostgreSQL, construct the SQLAlchemy engine with a URL such as
 
 ```text
 molseal keygen PATH
+molseal key-check                      # wrap and unwrap a throwaway secret through --key
+molseal rewrap --to SPEC [--all]       # re-wrap tenant keys under another provider
 molseal load FILE                      # one SMILES per line
 molseal search QUERY [--smarts] [--max N]
 molseal count QUERY [--smarts]
@@ -493,8 +530,12 @@ molseal leak-report SIDECAR
 ```
 
 Database commands accept `--db`, `--key`, `--tenant`, and `--snapshot-dir`, or the corresponding
-environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY_FILE`, `MOLSEAL_TENANT`, and
-`MOLSEAL_SNAPSHOT_DIR`. Key generation takes a file path and refuses to overwrite an existing key.
+environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY`, `MOLSEAL_TENANT`, and
+`MOLSEAL_SNAPSHOT_DIR`. `--key` takes a provider specification: a file path (or `file:PATH`),
+`aws:KEY_ID`, `gcp:KEY_NAME`, `azure:KEY_URL`, or `infisical:BASE_URL/KEY_ID` with the bearer token in
+`MOLSEAL_INFISICAL_TOKEN`. `rewrap` reads the old provider from `--key` and the new one from `--to`;
+`key-check` proves a provider works before a vault is pointed at it. Key generation takes a file path
+and refuses to overwrite an existing key.
 
 ## 8. Limitations and future work
 
@@ -503,8 +544,8 @@ application memory. Each process maintains its own index, similarity search scan
 matrix, and a single vault lock serializes searches and updates. These properties define the current
 scaling constraints.
 
-Future work includes similarity indexing,
-count-based fingerprints, molfile storage, an asynchronous API, and more concurrent index access.
+Future work includes similarity indexing, count-based fingerprints, molfile storage, an asynchronous
+API, more concurrent index access, and rotation of the tenant keys themselves.
 Cross-process synchronization currently relies on cursor checks rather than a separate invalidation
 service. Rollback detection would require an additional trusted source of state.
 
