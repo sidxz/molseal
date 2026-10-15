@@ -13,6 +13,11 @@ dependencies = [
   "psycopg[binary]>=3.2",
 ]
 
+[project.optional-dependencies]
+aws = ["boto3>=1.34"]
+gcp = ["google-cloud-kms>=2.21"]
+azure = ["azure-keyvault-keys>=4.9", "azure-identity>=1.17"]
+
 [project.scripts]
 molseal = "molseal.cli:main"
 
