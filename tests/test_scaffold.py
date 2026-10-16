@@ -1,8 +1,10 @@
+from importlib.metadata import version
+
 import molseal
 
 
-def test_package_imports_and_has_version():
-    assert molseal.__version__ == "0.0.1"
+def test_package_version_matches_the_installed_metadata():
+    assert molseal.__version__ == version("molseal")
 
 
 def test_rdkit_and_numpy_are_the_pinned_generation():

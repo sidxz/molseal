@@ -14,7 +14,7 @@ from .snapshot import SnapshotError, SnapshotFormatError
 from .store import SqlStore, StructureStore, VersionConflict
 from .vault import NotFound, Vault, VaultError, rewrap_tenant
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 __all__ = [
     "Vault", "SqlStore", "StructureStore", "rewrap_tenant",

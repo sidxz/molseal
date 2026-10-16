@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/molseal.svg" alt="Molseal logo" width="96" />
+  <img src="https://raw.githubusercontent.com/sidxz/molseal/main/docs/images/molseal.svg" alt="Molseal logo" width="96" />
 </p>
 
 <h1 align="center">Molseal</h1>
@@ -462,14 +462,14 @@ and leakage report are available under [`docs/results/`](docs/results/README.md)
 ### 7.1 Environment
 
 The project requires Python 3.12 or later. Dependencies include RDKit, NumPy, SQLAlchemy, psycopg,
-cryptography, and Pydantic. From a local checkout, install the project with:
+cryptography, and Pydantic. Install the project from PyPI with:
 
 ```bash
-pip install .
+pip install molseal
 ```
 
-Key service providers are optional extras: `pip install ".[aws]"`, `".[gcp]"` or `".[azure]"`. The
-Infisical provider needs no extra.
+Key service providers are optional extras: `pip install "molseal[aws]"`, `"molseal[gcp]"` or
+`"molseal[azure]"`. The Infisical and Vault Transit providers need no extra.
 
 For development, use `uv sync`. PostgreSQL integration tests can use the supplied development service:
 
@@ -624,8 +624,8 @@ Cross-process synchronization currently relies on cursor checks rather than a se
 service. Rollback detection would require an additional trusted source of state.
 
 Application-specific registration rules, chemical standardization, authorization, and analytical
-workflows remain responsibilities of the integrating application. Design specifications, milestone
-reviews, and proposed extensions are retained under [`docs/`](docs/).
+workflows remain responsibilities of the integrating application. Benchmark results, the key-provider
+setup guide, and an integration example are under [`docs/`](docs/).
 
 ## 9. Development and reproducibility
 

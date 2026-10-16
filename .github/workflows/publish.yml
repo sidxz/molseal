@@ -1,6 +1,8 @@
 name: Publish to PyPI
 
-# Push a tag matching __version__ in src/molseal/__init__.py, e.g. v0.1.0.
+# Release: add a `## [X.Y.Z]` section to CHANGELOG.md, set __version__ in
+# src/molseal/__init__.py to X.Y.Z, commit, then push tag vX.Y.Z. This workflow
+# gates on CI, publishes to PyPI, and creates the GitHub Release from the changelog.
 on:
   push:
     tags:
@@ -26,11 +28,15 @@ jobs:
       - name: Build
         run: uv build --out-dir dist/
 
-      - name: Check the tag matches the built version
+      - name: Check the tag matches the built version and the changelog
         run: |
           version="${GITHUB_REF_NAME#v}"
           if [ ! -f "dist/molseal-${version}.tar.gz" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match the built version:" dist/*
+            exit 1
+          fi
+          if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${version}]' section"
             exit 1
           fi
 
@@ -60,3 +66,26 @@ jobs:
       # twine 7, which accepts the Metadata-Version 2.5 that current hatchling emits.
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  github-release:
+    name: GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create the release from the changelog entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && (/^## \[/ || /^\[[^]]+\]: /) {exit} on' \
+            CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
