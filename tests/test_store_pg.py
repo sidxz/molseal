@@ -1,6 +1,6 @@
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from uuid import uuid4
 
 from sqlalchemy import insert, update
@@ -27,7 +27,7 @@ def test_second_writer_waits_for_first_to_commit_so_seq_order_is_commit_order(pg
                            .returning(tenants.c.seq_cursor)).scalar_one()
     conn_a.execute(insert(structures).values(tenant_id=t, id=a, row_version=1, data_key_version=1,
                                              nonce=b"n" * 12, ciphertext=b"ct", deleted=False, seq=seq_a,
-                                             updated_at=datetime.now(timezone.utc)))
+                                             updated_at=datetime.now(UTC)))
 
     # Writer B: a normal put, which must block on A's row lock.
     th = threading.Thread(target=lambda: seq_b.append(pg_store.put_structure(_rec(t, b), {}, None)))

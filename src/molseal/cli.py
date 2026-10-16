@@ -155,8 +155,8 @@ def cmd_load(args: argparse.Namespace) -> int:
         for start in range(0, len(rows), LOAD_CHUNK):
             chunk = rows[start : start + LOAD_CHUNK]
             vault.put_many([(id_, smi, {"inchikey": key}) for id_, smi, key in chunk])
-            for id_, smi, key in chunk:          # sidecar written only after the chunk committed
-                fout.write(f"{id_}\t{smi}\t{key}\n")
+            # sidecar written only after the chunk committed
+            fout.writelines(f"{id_}\t{smi}\t{key}\n" for id_, smi, key in chunk)
             print(f"{start + len(chunk)} loaded", file=sys.stderr)
     if args.snapshot_dir:
         vault.save_snapshot()

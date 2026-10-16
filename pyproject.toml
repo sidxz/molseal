@@ -1,10 +1,21 @@
 [project]
 name = "molseal"
-version = "0.0.1"
+dynamic = ["version"]  # single source: __version__ in src/molseal/__init__.py
 description = "Encrypted chemical structure store with in-process RDKit search"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "BSD-3-Clause"
+authors = [{ name = "Siddhant Rath" }]
+keywords = ["cheminformatics", "rdkit", "encryption", "aes-gcm", "substructure-search", "similarity-search"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Chemistry",
+  "Topic :: Security :: Cryptography",
+  "Typing :: Typed",
+]
 dependencies = [
   "rdkit==2025.3.3",
   "cryptography>=45",
@@ -22,18 +33,31 @@ azure = ["azure-keyvault-keys>=4.9", "azure-identity>=1.17"]
 [project.scripts]
 molseal = "molseal.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/sidxz/molseal"
+Issues = "https://github.com/sidxz/molseal/issues"
+
 [dependency-groups]
 dev = [
     "mypy>=1.14",
     "pytest>=8",
+    "ruff>=0.17.1",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/molseal/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/molseal"]
+
+[tool.hatch.build.targets.sdist]
+# keep bench/, docker files and workflow scratch out of the published tarball
+include = ["/src/molseal", "/tests", "/README.md", "/LICENSE"]
+exclude = ["/tests/bench"]  # these import bench/, which isn't shipped
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -46,3 +70,14 @@ strict = true
 # RDKit ships no stubs; the vendor SDKs are optional extras
 module = ["rdkit.*", "boto3", "google.cloud.*", "azure.*"]
 ignore_missing_imports = true
+
+[tool.ruff.lint]
+ignore = [
+  "RUF022",  # __all__ is grouped by role, not alphabetically
+  "C408",    # dict(key=...) reads better than literals for SQL row dicts
+  "I001",    # import order and wrapping are left to the house style until we adopt ruff format
+]
+
+[tool.ruff.lint.per-file-ignores]
+# timing lambdas run inside their own loop iteration; metadata probes must never fail a run
+"bench/*" = ["B023", "BLE001"]

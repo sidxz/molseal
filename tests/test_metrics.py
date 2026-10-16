@@ -47,7 +47,7 @@ def test_metrics_match_rdkit(pairs, ours, ref):
 
 
 def test_tversky_weights_are_query_first(pairs):
-    q, targets, c, a, b = pairs
+    _q, _targets, c, a, b = pairs
     assert not np.allclose(metrics.tversky(1, 0)(c, a, b), metrics.tversky(0, 1)(c, a, b))
     # a query that sits entirely inside a larger target scores 1.0 with (1, 0) and less with (0, 1)
     assert metrics.tversky(1, 0)(np.array([a]), a, np.array([a + 10]))[0] == 1.0

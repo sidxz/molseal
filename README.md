@@ -635,6 +635,7 @@ Install development dependencies and run the test suite with:
 uv sync
 uv run pytest
 uv run mypy          # strict; the configuration is in pyproject.toml
+uv run ruff check .  # lint; CI runs all three on every push and pull request
 ```
 
 Set `MOLSEAL_TEST_DATABASE_URL` to a PostgreSQL connection URL to include PostgreSQL store tests.

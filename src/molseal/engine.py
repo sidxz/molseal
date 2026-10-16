@@ -98,7 +98,7 @@ def pack_fingerprints(generator: Any, mols: Sequence[Chem.Mol], nbytes: int, num
 
 
 class _Family:
-    __slots__ = ("spec", "gen", "fps", "pop")
+    __slots__ = ("fps", "gen", "pop", "spec")
 
     def __init__(self, spec: FingerprintSpec, cap: int) -> None:
         self.spec, self.gen = spec, spec.generator()
@@ -428,7 +428,7 @@ class StructureIndex:
 
     @classmethod
     def from_parts(cls, parts: dict[str, bytes], families: Sequence[FingerprintSpec] = DEFAULT_FAMILIES,
-                   num_threads: int = -1) -> "StructureIndex":
+                   num_threads: int = -1) -> StructureIndex:
         """Rebuild from parts. A requested family stored under the same name and width is taken from the
         parts; any other requested family is computed from the library's SMILES; stored families nobody
         requested are dropped."""

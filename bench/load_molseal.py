@@ -62,8 +62,7 @@ def load(slice_path: Path, store: StructureStore, key_provider: KeyProvider, ten
             if not group:
                 break
             vault.put_many([(row_id(c), s, {"inchikey": k}) for c, s, k in group], chunk=len(group))
-            for c, s, k in group:
-                side.write(f"{row_id(c)}\t{s}\t{k}\n")
+            side.writelines(f"{row_id(c)}\t{s}\t{k}\n" for c, s, k in group)
             side.flush()
             chunks += 1
             loaded += len(group)

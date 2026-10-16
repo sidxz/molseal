@@ -8,7 +8,7 @@ PostgreSQL and SQLite alike. A plain database sequence does not give that guaran
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -254,7 +254,7 @@ class SqlStore:
             if delta:
                 conn.execute(update(tenants).where(tenants.c.tenant_id == tenant_id)
                              .values(live_count=tenants.c.live_count + delta))
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             inserts, seqs = [], []
             for offset, (rec, _, _) in enumerate(batch):
                 seq = first + offset

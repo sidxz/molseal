@@ -27,7 +27,7 @@ def vault(env):
 
 
 def test_mint_refuses_a_provider_that_cannot_unwrap(env):
-    store, kp, _ = env
+    store, _kp, _ = env
     raw = keys.RawKeyProvider(b"\x01" * 32)
 
     class WrapOnly:
@@ -90,7 +90,7 @@ def test_find_exact_verifies_against_the_payload(vault):
 
 
 def test_a_second_instance_sees_writes_through_the_cursor(env):
-    store, kp, snap = env
+    store, kp, _snap = env
     t = uuid4()
     v1 = Vault(store, kp, t)
     v2 = Vault(store, kp, t)
@@ -131,7 +131,7 @@ def test_snapshot_save_load_and_catch_up(env):
 
 
 def test_wrong_kek_cannot_open_an_existing_tenant(env, tmp_path):
-    store, kp, snap = env
+    store, kp, _snap = env
     t = uuid4()
     Vault(store, kp, t).put(uuid4(), "CCO")
     other = tmp_path / "other.key"
@@ -238,7 +238,7 @@ def test_put_many_edits_existing_ids_and_rejects_duplicates_and_garbage(vault):
 
 
 def test_a_second_instance_sees_a_bulk_load(env):
-    store, kp, snap = env
+    store, kp, _snap = env
     t = uuid4()
     v1, v2 = Vault(store, kp, t), Vault(store, kp, t)
     ids = [uuid4() for _ in range(12)]
@@ -283,7 +283,7 @@ def test_get_many_decrypts_live_rows_and_skips_deleted_and_unknown(env):
 
 
 def test_fingerprints_sync_before_reading(env):
-    store, kp, snap = env
+    store, kp, _snap = env
     t = uuid4()
     v1 = Vault(store, kp, t)
     a, b = uuid4(), uuid4()

@@ -294,7 +294,7 @@ def test_add_family_later_equals_ingest_bit_for_bit(dataset):
 
 
 def test_fingerprints_follow_the_order_given_and_skip_unknown(index, dataset):
-    ids, smiles, mols = dataset
+    ids, _smiles, mols = dataset
     want = [ids[3], uuid4(), ids[1]]
     found, mat = index.fingerprints(want)
     assert found == [ids[3], ids[1]]
@@ -383,7 +383,7 @@ def test_generalized_finds_the_tautomer_and_plain_does_not():
 
 
 def test_use_chirality_matches_only_the_same_defined_stereo(index, dataset):
-    ids, smiles, _ = dataset
+    _ids, _smiles, _ = dataset
     q = "C[C@H](N)C(=O)O"
     expected_on = brute_force_chiral(dataset, q)
     assert set(index.substructure(q, use_chirality=True)) == expected_on

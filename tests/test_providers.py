@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from molseal import keys
 from molseal.providers.aws import AwsKmsKeyProvider
-from molseal.providers.azure import ALGORITHM, AzureKeyVaultKeyProvider
+from molseal.providers.azure import AzureKeyVaultKeyProvider
 from molseal.providers.gcp import GcpKmsKeyProvider
 from molseal.providers.infisical import InfisicalKmsKeyProvider
 from molseal.providers.vault import VaultTransitKeyProvider

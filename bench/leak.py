@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 import numpy as np
@@ -101,7 +101,7 @@ def cmd_absence_check(args: argparse.Namespace) -> int:
         conn.execute(delete(structures).where(structures.c.tenant_id == tenant, structures.c.id == CONTROL_ID))
         conn.execute(insert(structures).values(tenant_id=tenant, id=CONTROL_ID, row_version=1, data_key_version=1,
                                                nonce=b"\x00" * 12, ciphertext=control, deleted=True, seq=0,
-                                               updated_at=datetime.now(timezone.utc)))
+                                               updated_at=datetime.now(UTC)))
     db_hits, db_control = _scan(_column_bytes(store, tenant), needles, control)
     ok = db_hits == 0 and db_control
 

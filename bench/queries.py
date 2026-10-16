@@ -95,7 +95,8 @@ def chiral_queries(smiles_list: list[str], rng: random.Random, n: int = 20, max_
 def build_queries(slice_path: Path, seed: int = 20261013, n_frag: int = 50, n_sim: int = 50, sample: int = 2000,
                  n_chiral: int = 20) -> dict:
     rng = random.Random(seed)
-    rows = [line.rstrip("\n").split("\t") for line in open(slice_path)]
+    with open(slice_path) as f:
+        rows = [line.rstrip("\n").split("\t") for line in f]
     picked = rng.sample(rows, min(sample, len(rows)))
     frags = fragments_from([r[1] for r in picked], rng, n=n_frag)
     sub = [{"id": f"frag-{i:03d}", "kind": "smiles", "query": f} for i, f in enumerate(frags)]
