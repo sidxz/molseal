@@ -21,7 +21,7 @@ dependencies = [
   "cryptography>=45",
   "numpy>=2.0",
   "sqlalchemy>=2.0",
-  "psycopg[binary]>=3.2",
+  "psycopg[binary]>=3.3.6",
   "pydantic>=2.7",
 ]
 
