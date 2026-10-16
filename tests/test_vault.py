@@ -1,3 +1,4 @@
+import traceback
 from uuid import uuid4
 
 import pytest
@@ -235,6 +236,26 @@ def test_put_many_edits_existing_ids_and_rejects_duplicates_and_garbage(vault):
     with pytest.raises(engine.StructureError):
         vault.put_many([(uuid4(), "CCO", None), (uuid4(), "garbage(", None)])
     assert vault.store.tenant_state(vault.tenant_id) == cursor_before
+
+
+def test_errors_name_the_id_and_never_echo_the_structure(vault):
+    # Exception text ends up in log aggregators and error trackers; it must not carry the plaintext.
+    leaky = "C1CC(Qzq"
+    def text(e):
+        return "".join(traceback.format_exception(e.value))
+    i = uuid4()
+    with pytest.raises(engine.StructureError) as e:
+        vault.put(i, leaky)
+    assert str(i) in str(e.value) and "Qzq" not in text(e)
+    j = uuid4()
+    with pytest.raises(engine.StructureError) as e:
+        vault.put_many([(uuid4(), "CCO", None), (j, leaky, None)])
+    assert str(j) in str(e.value) and "Qzq" not in text(e)
+    vault.put(uuid4(), "CCO")   # an empty index answers [] without parsing the query
+    for kind in ("smiles", "smarts"):
+        with pytest.raises(engine.StructureError) as e:
+            vault.substructure(leaky, kind=kind)
+        assert "Qzq" not in text(e)
 
 
 def test_a_second_instance_sees_a_bulk_load(env):

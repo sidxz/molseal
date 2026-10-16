@@ -11,6 +11,11 @@ version may change the public API; check the `Changed` and `Removed` sections be
 <!-- Add next-version entries here. To release: move them under a new version heading, set
      __version__ in src/molseal/__init__.py to match, then push a tag vX.Y.Z. -->
 
+### Security
+- Exception messages no longer repeat the SMILES, the search query or decrypted payload values, since
+  exception text reaches logs and error trackers. `Vault.put` and `Vault.put_many` name the failing
+  record id instead.
+
 ## [0.1.0] - 2026-10-15
 
 First public release.

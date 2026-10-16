@@ -21,7 +21,7 @@ import numpy as np
 
 from . import snapshot
 from .crypto import open_sealed, pad, row_aad, seal, unpad
-from .engine import DEFAULT_FAMILIES, MORGAN2, FingerprintSpec, QueryKind, StructureIndex, canonicalize
+from .engine import DEFAULT_FAMILIES, MORGAN2, FingerprintSpec, QueryKind, StructureError, StructureIndex, canonicalize
 from .errors import MolsealError
 from .keys import (KeyProvider, KeyProviderError, TenantKeys, exact_key_hmac, new_tenant_secret,
                    unwrap_tenant_key, wrap_tenant_key)
@@ -32,6 +32,14 @@ from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
 log = logging.getLogger(__name__)
 
 WRITE_ATTEMPTS = 5
+
+
+def _canonical(id: UUID, smiles: str) -> str:
+    """canonicalize, naming the record in the error, since the message cannot name the structure."""
+    try:
+        return canonicalize(smiles)
+    except StructureError as exc:
+        raise StructureError(f"{id}: {exc}") from exc
 
 
 class VaultError(MolsealError):
@@ -134,7 +142,7 @@ class Vault:
         """Store or replace one structure. `smiles` is canonicalized first, so a StructureError leaves
         nothing written. `keys` are the caller's exact lookup keys, kind -> value, for find_exact.
         Returns the row's new version: 1 for a new id, one more than before for a replaced one."""
-        canonical = canonicalize(smiles)
+        canonical = _canonical(id, smiles)
         ek = dict(keys or {})
         hmacs = {k: exact_key_hmac(self._keys.hmac_key, k, v) for k, v in ek.items()}
         with self._lock:
@@ -169,7 +177,7 @@ class Vault:
         ids = [i for i, _, _ in group]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate ids in chunk")
-        prepared = [(i, canonicalize(s), dict(k or {})) for i, s, k in group]   # StructureError before any write
+        prepared = [(i, _canonical(i, s), dict(k or {})) for i, s, k in group]   # StructureError before any write
         with self._lock:
             for _ in range(WRITE_ATTEMPTS):
                 existing = self.store.get_structures(self.tenant_id, ids)

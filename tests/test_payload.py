@@ -1,3 +1,5 @@
+import traceback
+
 import pytest
 
 from molseal import payload
@@ -19,3 +21,11 @@ def test_tombstone_round_trips():
 def test_decode_rejects_garbage_and_unknown_versions(bad):
     with pytest.raises(payload.PayloadError):
         payload.decode(bad)
+
+
+def test_decode_errors_never_echo_payload_contents():
+    leaky = b'{"v":1,"smiles":["Qzq"],"keys":{"inchikey":7},"deleted":false}'
+    with pytest.raises(payload.PayloadError) as e:
+        payload.decode(leaky)
+    text = "".join(traceback.format_exception(e.value))
+    assert "Qzq" not in text and "smiles" in str(e.value) and "inchikey" in str(e.value)

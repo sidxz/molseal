@@ -59,7 +59,8 @@ DEFAULT_FAMILIES: tuple[FingerprintSpec, ...] = (MORGAN2,)
 
 
 class StructureError(MolsealError, ValueError):
-    """A SMILES or query could not be parsed."""
+    """A SMILES or query could not be parsed. The message never repeats the input: exception text
+    travels to logs and error trackers, and the structure is the confidential part."""
 
 
 def canonicalize(smiles: str) -> str:
@@ -67,10 +68,10 @@ def canonicalize(smiles: str) -> str:
     with rdBase.BlockLogs():        # RDKit prints parse errors; the exception below carries them instead
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
-            raise StructureError(f"cannot parse SMILES: {smiles!r}")
+            raise StructureError("cannot parse SMILES")
         out: str = Chem.MolToSmiles(mol)
         if Chem.MolFromSmiles(out) is None:     # the index re-parses what we store, so it must parse
-            raise StructureError(f"canonical SMILES does not re-parse: {smiles!r}")
+            raise StructureError("canonical SMILES does not re-parse")
     return out
 
 
@@ -127,16 +128,16 @@ def _parse_query(query: str, kind: QueryKind) -> Chem.Mol:
     except (ValueError, RuntimeError):
         q = None
     if q is None:
-        raise StructureError(f"cannot parse {kind} query: {query!r}")
+        raise StructureError(f"cannot parse {kind} query")
     return q
 
 
-def _generalize(q: Chem.Mol, query: str, kind: QueryKind) -> Chem.Mol:
+def _generalize(q: Chem.Mol, kind: QueryKind) -> Chem.Mol:
     try:   # positional: doEnumeration=True, doTautomers=True, adjustQueryProperties=False (the cartridge's defaults)
         with rdBase.BlockLogs():
             return CreateExtendedQueryMol(q, True, True, False)
     except (ValueError, RuntimeError) as exc:
-        raise StructureError(f"cannot build a generalized query from {kind} {query!r}: {exc}") from exc
+        raise StructureError(f"cannot build a generalized query from {kind}: {exc}") from exc
 
 
 class StructureIndex:
@@ -324,7 +325,7 @@ class StructureIndex:
     def _query(self, query: str, kind: QueryKind, generalized: bool, use_chirality: bool,
                num_threads: int) -> tuple[Chem.Mol, Chem.Mol, bool]:
         plain = _parse_query(query, kind)
-        q = _generalize(plain, query, kind) if generalized else plain
+        q = _generalize(plain, kind) if generalized else plain
         self._ensure_patterns(num_threads)
         self._ensure_order()
         ez = use_chirality and any(b.GetStereo() != Chem.BondStereo.STEREONONE for b in plain.GetBonds())

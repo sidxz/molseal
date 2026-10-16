@@ -45,5 +45,8 @@ def decode(b: bytes) -> Payload:
         raise PayloadError("unknown payload version")
     try:
         return Payload(smiles=doc["smiles"], keys=doc["keys"], deleted=doc["deleted"])
-    except (KeyError, ValidationError) as exc:
-        raise PayloadError(f"payload has a missing or malformed field: {exc}") from exc
+    except KeyError as exc:
+        raise PayloadError(f"payload is missing field {exc}") from None
+    except ValidationError as exc:   # its text repeats the input values, i.e. the decrypted contents
+        fields = ", ".join(".".join(map(str, e["loc"])) for e in exc.errors())
+        raise PayloadError(f"payload has malformed fields: {fields}") from None
