@@ -1,6 +1,10 @@
-# Molseal
+<p align="center">
+  <img src="docs/images/molseal.svg" alt="Molseal logo" width="96" />
+</p>
 
-**Encrypted molecular storage with RDKit**
+<h1 align="center">Molseal</h1>
+
+<p align="center"><b>Encrypted molecular storage with RDKit</b></p>
 
 Molseal addresses a security problem in cheminformatics applications: how to keep molecular data
 encrypted in the database while retaining the chemical operations that make the data useful. It
