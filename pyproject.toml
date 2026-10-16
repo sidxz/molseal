@@ -17,7 +17,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "rdkit==2025.3.3",
+  "rdkit==2026.9.1",
   "cryptography>=45",
   "numpy>=2.0",
   "sqlalchemy>=2.0",
