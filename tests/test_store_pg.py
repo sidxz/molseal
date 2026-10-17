@@ -1,3 +1,4 @@
+from dataclasses import replace
 import threading
 import time
 from datetime import datetime, UTC
@@ -147,3 +148,18 @@ def test_a_writer_blocked_behind_a_key_version_bump_is_refused_pg(pg_store, pg_e
     conn_a.close()
     th.join(timeout=5)
     assert "exc" in got and pg_store.changes_since(t, 0) == []
+
+
+def test_rotation_primitives_pg(pg_store):
+    t, a, b = uuid4(), uuid4(), uuid4()
+    pg_store.ensure_tenant(t)
+    pg_store.put_tenant_keys(t, [WrappedKey("data", 1, b"d1"), WrappedKey("hmac", 1, b"h1")])
+    pg_store.put_structures([(_rec(t, a), {"k": b"a" * 32}, None), (_rec(t, b), {}, None)])
+    assert pg_store.start_key_rotation(t, [WrappedKey("data", 2, b"d2"), WrappedKey("hmac", 2, b"h2")])
+    assert not pg_store.finish_key_rotation(t)
+    batch = [(replace(_rec(t, i), data_key_version=2, ciphertext=b"new"), h) for i, h in ((a, {"k": b"A" * 32}), (b, {}))]
+    assert pg_store.reseal_structures(batch) == 2
+    assert {r.ciphertext for r in pg_store.changes_since(t, 0)} == {b"new"}
+    assert pg_store.find_by_key(t, "k", b"A" * 32) == [a]
+    assert pg_store.finish_key_rotation(t)
+    assert sorted(k.version for k in pg_store.get_tenant_keys(t)) == [2, 2]

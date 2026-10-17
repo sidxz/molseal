@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import uuid4
 
 import pytest
@@ -235,3 +236,59 @@ def test_put_structures_rejects_a_mixed_tenant_batch(store):
     with pytest.raises(ValueError, match="one tenant"):
         store.put_structures([(rec(t, uuid4()), {}, None), (rec(other, uuid4()), {}, None)])
     assert store.tenant_state(t) == (0, 0) and store.tenant_state(other) == (0, 0)
+
+
+def _keyed(store, t):
+    store.ensure_tenant(t)
+    store.put_tenant_keys(t, [WrappedKey("data", 1, b"d1"), WrappedKey("hmac", 1, b"h1")])
+
+
+NEXT = [WrappedKey("data", 2, b"d2"), WrappedKey("hmac", 2, b"h2")]
+
+
+def test_start_key_rotation_makes_the_next_versions_current_and_refuses_while_pending(store):
+    t = uuid4()
+    _keyed(store, t)
+    assert not store.start_key_rotation(t, [WrappedKey("data", 3, b"x"), WrappedKey("hmac", 3, b"y")])
+    assert store.start_key_rotation(t, NEXT)
+    row = store.ensure_tenant(t)
+    assert (row.data_key_version, row.hmac_key_version) == (2, 2)
+    assert not store.start_key_rotation(t, [WrappedKey("data", 3, b"d3"), WrappedKey("hmac", 3, b"h3")])
+    assert sorted((k.kind, k.version) for k in store.get_tenant_keys(t)) == [
+        ("data", 1), ("data", 2), ("hmac", 1), ("hmac", 2)]
+
+
+def test_reseal_rewrites_old_rows_in_place_and_skips_changed_ones(store):
+    t, a, b, c = uuid4(), uuid4(), uuid4(), uuid4()
+    _keyed(store, t)
+    store.put_structures([(rec(t, a), {"k": b"a" * 32}, None), (rec(t, b), {}, None),
+                          (rec(t, c, deleted=True), {}, None)])
+    seqs = {r.id: r.seq for r in store.changes_since(t, 0)}
+    assert store.start_key_rotation(t, NEXT)
+
+    def new(i, deleted=False):
+        return replace(rec(t, i, deleted=deleted, ct=b"new"), data_key_version=2)
+
+    with pytest.raises(KeyVersionChanged):
+        store.reseal_structures([(rec(t, a), {})])                       # still sealed under v1
+    store.put_structures([(replace(rec(t, b, rv=2, ct=b"writer"), data_key_version=2), {}, 1)])
+    assert store.reseal_structures([(new(a), {"k": b"A" * 32}), (new(b), {}), (new(c, deleted=True), {})]) == 2
+    rows = {r.id: r for r in store.changes_since(t, 0)}
+    assert rows[a].data_key_version == 2 and rows[a].ciphertext == b"new" and rows[a].seq == seqs[a]
+    assert rows[c].deleted and rows[c].data_key_version == 2 and rows[c].seq == seqs[c]
+    assert rows[b].ciphertext == b"writer" and rows[b].row_version == 2      # the writer's row is kept
+    assert store.find_by_key(t, "k", b"A" * 32) == [a] and store.find_by_key(t, "k", b"a" * 32) == []
+    assert store.tenant_state(t)[1] == 2                                     # live count unchanged
+    assert store.reseal_structures([(new(a), {})]) == 0                      # already current
+
+
+def test_finish_key_rotation_waits_for_the_last_old_row(store):
+    t, a = uuid4(), uuid4()
+    _keyed(store, t)
+    store.put_structures([(rec(t, a), {}, None)])
+    assert store.start_key_rotation(t, NEXT)
+    assert not store.finish_key_rotation(t)
+    assert len(store.get_tenant_keys(t)) == 4
+    assert store.reseal_structures([(replace(rec(t, a), data_key_version=2), {})]) == 1
+    assert store.finish_key_rotation(t)
+    assert sorted((k.kind, k.version) for k in store.get_tenant_keys(t)) == [("data", 2), ("hmac", 2)]

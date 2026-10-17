@@ -162,6 +162,23 @@ class StructureStore(Protocol):
     def find_by_key(self, tenant_id: UUID, kind: str, hmac: bytes) -> list[UUID]:
         """Ids of live rows whose exact key `kind` hashes to `hmac`."""
 
+    def start_key_rotation(self, tenant_id: UUID, keys: list[WrappedKey]) -> bool:
+        """Under the tenant lock: unless some key kind already has two versions (a rotation is pending), insert
+        `keys`, which must be the data and hmac keys one version above the current ones, and make them current.
+        Otherwise write nothing and return False."""
+
+    def reseal_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes]]]) -> int:
+        """Re-encrypt one tenant's rows in place for a key rotation. Under the tenant lock, each row whose stored
+        row version still equals the record's and whose stored data key version is below the current one takes
+        the record's nonce, ciphertext and data key version, and its exact-key hashes. The other rows were
+        rewritten under the current key since they were read and are skipped. Sequence numbers, row versions
+        and the live count do not change. Raises KeyVersionChanged, writing nothing, if a record is not sealed
+        under the current version. Returns how many rows were rewritten."""
+
+    def finish_key_rotation(self, tenant_id: UUID) -> bool:
+        """Under the tenant lock: if no row is sealed under a data key version below the current one, delete the
+        key rows below the current versions and return True; otherwise delete nothing and return False."""
+
 
 def _record(row: sa.Row[Any]) -> StructureRecord:
     return StructureRecord(
@@ -345,3 +362,63 @@ class SqlStore:
                                 .where(structure_keys.c.tenant_id == tenant_id, structure_keys.c.kind == kind,
                                        structure_keys.c.hmac == hmac, structures.c.deleted == sa.false())).all()
         return [r.id for r in rows]
+
+    def start_key_rotation(self, tenant_id: UUID, keys: list[WrappedKey]) -> bool:
+        with self.engine.begin() as conn:
+            t = _lock_tenant(conn, tenant_id)
+            kinds = [r.kind for r in conn.execute(select(tenant_keys.c.kind).where(tenant_keys.c.tenant_id == tenant_id))]
+            nxt = {("data", t.data_key_version + 1), ("hmac", t.hmac_key_version + 1)}
+            if len(kinds) != len(set(kinds)) or len(keys) != 2 or {(k.kind, k.version) for k in keys} != nxt:
+                return False
+            conn.execute(insert(tenant_keys), _key_rows(tenant_id, keys))
+            conn.execute(update(tenants).where(tenants.c.tenant_id == tenant_id)
+                         .values(data_key_version=t.data_key_version + 1, hmac_key_version=t.hmac_key_version + 1))
+            return True
+
+    def reseal_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes]]]) -> int:
+        if not batch:
+            return 0
+        tenant_id = batch[0][0].tenant_id
+        if any(rec.tenant_id != tenant_id for rec, _ in batch):
+            raise ValueError("a batch holds one tenant's rows")
+        ids = [rec.id for rec, _ in batch]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate ids in batch")
+        with self.engine.begin() as conn:
+            current = _lock_tenant(conn, tenant_id).data_key_version
+            if any(rec.data_key_version != current for rec, _ in batch):
+                raise KeyVersionChanged(f"tenant {tenant_id}: reseal batch is not under the current data key "
+                                        f"version {current}")
+            stored = {r.id: (r.row_version, r.data_key_version) for r in conn.execute(
+                select(structures.c.id, structures.c.row_version, structures.c.data_key_version)
+                .where(structures.c.tenant_id == tenant_id, structures.c.id.in_(ids)))}
+            todo = [(rec, h) for rec, h in batch
+                    if rec.id in stored and stored[rec.id][0] == rec.row_version and stored[rec.id][1] < current]
+            if not todo:
+                return 0
+            conn.execute(update(structures)
+                         .where(structures.c.tenant_id == sa.bindparam("t"), structures.c.id == sa.bindparam("i"))
+                         .values(data_key_version=sa.bindparam("dv"), nonce=sa.bindparam("n"),
+                                 ciphertext=sa.bindparam("ct")),
+                         [dict(t=tenant_id, i=rec.id, dv=rec.data_key_version, n=rec.nonce, ct=rec.ciphertext)
+                          for rec, _ in todo])
+            done = [rec.id for rec, _ in todo]
+            conn.execute(delete(structure_keys)
+                         .where(structure_keys.c.tenant_id == tenant_id, structure_keys.c.id.in_(done)))
+            key_rows = [dict(tenant_id=tenant_id, id=rec.id, kind=kind, hmac=h)
+                        for rec, hmacs in todo for kind, h in hmacs.items()]
+            if key_rows:
+                conn.execute(insert(structure_keys), key_rows)
+            return len(todo)
+
+    def finish_key_rotation(self, tenant_id: UUID) -> bool:
+        with self.engine.begin() as conn:
+            t = _lock_tenant(conn, tenant_id)
+            left = conn.execute(select(structures.c.id).where(
+                structures.c.tenant_id == tenant_id, structures.c.data_key_version < t.data_key_version).limit(1)).first()
+            if left is not None:
+                return False
+            conn.execute(delete(tenant_keys).where(tenant_keys.c.tenant_id == tenant_id, sa.or_(
+                sa.and_(tenant_keys.c.kind == "data", tenant_keys.c.version < t.data_key_version),
+                sa.and_(tenant_keys.c.kind == "hmac", tenant_keys.c.version < t.hmac_key_version))))
+            return True
