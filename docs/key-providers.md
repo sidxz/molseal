@@ -478,11 +478,57 @@ any tenant failed. Failed tenants keep their original key rows.
 To move from a key service back to a file, use the same command with the source and destination specs
 swapped.
 
-Rewrapping does not rotate the tenant keys themselves. That would require re-encrypting the structure
-rows. The database has version columns for tenant keys, but molseal does not yet have a command to
-rotate them.
+Rewrapping does not change the tenant keys themselves; to replace them, see section 11.
 
-## 11. Troubleshooting
+## 11. Rotating tenant keys
+
+Rewrap changes the key that wraps the tenant keys. It does not help when the tenant keys themselves may
+have leaked, for example after remote code execution in a process that had a vault open: they are the
+same bytes after a rewrap. Rotating the tenant keys mints a new data key and HMAC key, re-encrypts every
+row and re-hashes its exact keys, and deletes the old key rows. Afterwards the old keys open nothing in
+the database.
+
+**Upgrade first.** Every process that opens a vault, and the CLI, must run a molseal release with
+`rotate_tenant_keys` before the first rotation. An older writer keeps writing rows under the old key
+after it is deleted, and an older `rewrap` deletes the new key rows.
+
+Run it from the application, in a background worker or a Kubernetes Job rather than a request handler:
+
+```python
+from molseal import rotate_tenant_keys
+
+rows = rotate_tenant_keys(store, tenant_id, provider)
+```
+
+At worker startup, finish what a killed pod left behind without starting a new rotation:
+
+```python
+rotate_tenant_keys(store, tenant_id, provider, resume_only=True)
+```
+
+From a shell: `molseal rotate-keys --db URL --key SPEC --tenant TENANT`, or `--all`, or `--resume`.
+
+- Vaults keep reading, writing and searching throughout, in every process. A vault opened before the
+  rotation loads the new keys the first time it meets them; a write it sealed under the old key is
+  refused by the store and retried under the new one.
+- Rows are re-encrypted in place, 1,000 per transaction by default (`batch=`), so a writer waits at most
+  one batch and no search index is rebuilt. If the process dies, call again: it continues where it
+  stopped.
+- A call after a finished rotation starts another one. Retrying a Job that already succeeded costs a
+  full pass, never data.
+- Afterwards, call `save_snapshot()` on a running vault: it writes the snapshot under the new key. Then
+  restart every process that had a vault open, since its memory still holds the old keys. A process that
+  starts with an older snapshot rebuilds its index from the store.
+- Backups and snapshot files made before the rotation still open with the old keys. Expire them on your
+  backup schedule; molseal cannot reach them.
+- Do not rotate during a half-done KEK migration: the new keys are wrapped under the provider of the
+  process that rotates. A rewrap that overlaps the start or end of a rotation fails for that tenant
+  without changing it; run it again.
+
+Rotating a tenant of 499,997 ChEMBL structures, each with one exact key, took 61 s (about 8,200 rows/s,
+0.12 s per batch of 1,000) against PostgreSQL 16 in Docker on an Apple M5 Pro laptop.
+
+## 12. Troubleshooting
 
 | Message | Meaning | Fix |
 |---|---|---|

@@ -11,6 +11,24 @@ version may change the public API; check the `Changed` and `Removed` sections be
 <!-- Add next-version entries here. To release: move them under a new version heading, set
      __version__ in src/molseal/__init__.py to match, then push a tag vX.Y.Z. -->
 
+### Added
+- `rotate_tenant_keys` and `molseal rotate-keys`: give a tenant new data and HMAC keys and re-encrypt its
+  rows in place, while vaults keep serving, resumable after a crash. `resume_only=True` (`--resume`) only
+  finishes an interrupted rotation.
+- `KeyVersionChanged`, a `VersionConflict` for a write sealed under a data key version that is no longer
+  current.
+
+### Changed
+- **Upgrade every process before the first key rotation.** A 0.1.0 writer bypasses the new store check and
+  can write rows under a deleted key; a 0.1.0 `rewrap` can delete the new key rows.
+- `StructureStore` gains `start_key_rotation`, `reseal_structures` and `finish_key_rotation`, and a third
+  guarantee: `put_structures` refuses records sealed under a data key version other than the tenant's.
+- `replace_tenant_keys` replaces exactly the key rows present and raises `VersionConflict` if they changed
+  since they were read; `rewrap_tenant` reports that instead of deleting or reviving key rows.
+- A vault holds every tenant key version it has seen and loads new ones when it meets them.
+- A snapshot under a retired data key version is rebuilt with a warning instead of failing the vault open.
+- `molseal rewrap` reports any molseal error per tenant instead of a traceback.
+
 ### Security
 - Exception messages no longer repeat the SMILES, the search query or decrypted payload values, since
   exception text reaches logs and error trackers. `Vault.put` and `Vault.put_many` name the failing

@@ -295,8 +295,17 @@ is in [docs/key-providers.md](docs/key-providers.md).
 `rewrap_tenant`, and the `molseal rewrap` command, re-wrap a tenant's keys under another provider.
 This serves KEK rotation and migration from a file to a service. Each new wrapped key is verified
 before the key rows are replaced in one transaction, no structure row is touched, and running
-processes keep working because they hold the unwrapped tenant keys. Rotation of the tenant keys
-themselves, which re-encrypts rows, is not implemented; the version columns anticipate it.
+processes keep working because they hold the unwrapped tenant keys. Rewrapping keeps the tenant keys
+themselves.
+
+`rotate_tenant_keys`, and the `molseal rotate-keys` command, rotate the tenant keys themselves, for when
+a process that held them may have been compromised. They mint a new data key and HMAC key, re-encrypt
+every row and re-hash its exact keys in place, and delete the old key rows, so the old keys open nothing
+in the database afterwards. Vaults keep serving throughout, in every process, and pick up the new keys
+on their own; the store refuses a write sealed under the old key. Each batch commits on its own, so
+after a crash a second call finishes the job. Every process must run a release with this feature
+before the first rotation. The runbook and a timing on 500,000 rows are in
+[docs/key-providers.md](docs/key-providers.md#11-rotating-tenant-keys).
 
 Every deployment names at least one tenant. The tenant identifier is the unit of key scope (data key,
 HMAC key, change cursor and live count), not an opt-in multi-tenancy feature. A single-tenant
@@ -590,6 +599,7 @@ in `molseal.__all__`, and the package ships `py.typed`.
 molseal keygen PATH
 molseal key-check                      # wrap and unwrap a throwaway secret through --key
 molseal rewrap --to SPEC [--all]       # re-wrap tenant keys under another provider
+molseal rotate-keys [--all] [--resume] # new tenant keys; re-encrypts rows in place
 molseal load FILE                      # one SMILES per line
 molseal search QUERY [--kind smiles|smarts|molblock] [--generalized] [--chirality] [--max N]
 molseal count QUERY [--kind smiles|smarts|molblock] [--generalized] [--chirality]
@@ -607,7 +617,8 @@ environment variables `MOLSEAL_DATABASE_URL`, `MOLSEAL_KEY`, `MOLSEAL_TENANT`, a
 `MOLSEAL_INFISICAL_TOKEN`, or `vault:BASE_URL/MOUNT/KEY_NAME` with the token in `MOLSEAL_VAULT_TOKEN` or
 `VAULT_TOKEN`. `--kind` names the query language; `--generalized` matches tautomers and
 `--chirality` makes the query's stereo mandatory, as the library's `substructure` options do. `rewrap` reads the old provider from `--key` and the new one from `--to`;
-`key-check` proves a provider works before a vault is pointed at it. Each provider's setup is
+`key-check` proves a provider works before a vault is pointed at it. `rotate-keys` rotates the tenant
+keys; `--resume` only finishes an interrupted rotation. Each provider's setup is
 described in [docs/key-providers.md](docs/key-providers.md). Key generation takes a file path
 and refuses to overwrite an existing key.
 
@@ -619,7 +630,7 @@ matrix, and a single vault lock serializes searches and updates. These propertie
 scaling constraints.
 
 Future work includes similarity indexing, count-based fingerprints, molfile storage, an asynchronous
-API, more concurrent index access, and rotation of the tenant keys themselves.
+API, and more concurrent index access.
 Cross-process synchronization currently relies on cursor checks rather than a separate invalidation
 service. Rollback detection would require an additional trusted source of state.
 
