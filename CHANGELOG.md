@@ -28,6 +28,8 @@ version may change the public API; check the `Changed` and `Removed` sections be
 - A vault holds every tenant key version it has seen and loads new ones when it meets them.
 - A snapshot under a retired data key version is rebuilt with a warning instead of failing the vault open.
 - `molseal rewrap` reports any molseal error per tenant instead of a traceback.
+- A row whose nonce or row version was edited raises `SealError` when read, instead of `ValueError` or
+  `struct.error`.
 
 ### Security
 - Exception messages no longer repeat the SMILES, the search query or decrypted payload values, since

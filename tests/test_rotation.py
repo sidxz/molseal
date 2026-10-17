@@ -239,3 +239,46 @@ def test_a_row_that_does_not_open_stops_the_rotation_and_names_only_its_id(env):
 
 def test_key_version_changed_is_a_version_conflict():
     assert issubclass(KeyVersionChanged, VersionConflict)
+
+
+def test_a_rotation_with_the_wrong_provider_changes_nothing(env, tmp_path):
+    store, kp, _ = env
+    t, v, ids = _loaded(store, kp)
+    other = tmp_path / "other.key"
+    keys.generate_key_file(other)
+    before = store.get_tenant_keys(t)
+    with pytest.raises(keys.KeyProviderError):
+        rotate_tenant_keys(store, t, keys.FileKeyProvider(other))
+    assert store.get_tenant_keys(t) == before
+    v.put(uuid4(), "CCN")                                            # the tenant still works
+    assert rotate_tenant_keys(store, t, kp) == len(ids) + 1
+
+
+@pytest.mark.parametrize("edit", [{"nonce": b""}, {"row_version": -1}])
+def test_an_edited_nonce_or_row_version_stops_the_rotation_with_the_row_id(env, edit):
+    store, kp, _ = env
+    t, _v, ids = _loaded(store, kp)
+    with store.engine.begin() as conn:
+        conn.execute(sa.update(structures).where(structures.c.tenant_id == t, structures.c.id == ids[5]).values(**edit))
+    with pytest.raises(VaultError, match=str(ids[5])):
+        rotate_tenant_keys(store, t, kp)
+    assert len(store.get_tenant_keys(t)) == 4                        # pending; the old keys stay
+    with pytest.raises(SealError):                                   # a molseal error for readers too
+        Vault(store, kp, t)
+
+
+def test_a_rotation_overtaken_by_the_next_one_raises_a_version_conflict(env, monkeypatch):
+    store, kp, _ = env
+    t, _v, _ids = _loaded(store, kp)
+    real = store.reseal_structures
+
+    def overtaken(batch):
+        monkeypatch.setattr(store, "reseal_structures", real)
+        rotate_tenant_keys(store, t, kp, resume_only=True)          # another worker finishes this rotation (v2)
+        rotate_tenant_keys(store, t, kp)                            # and runs the next one (v3)
+        return real(batch)                                          # this batch is sealed under v2
+    monkeypatch.setattr(store, "reseal_structures", overtaken)
+    with pytest.raises(KeyVersionChanged):                          # retryable, unlike a row that does not open
+        rotate_tenant_keys(store, t, kp)
+    assert sorted(k.version for k in store.get_tenant_keys(t)) == [3, 3]
+    assert rotate_tenant_keys(store, t, kp, resume_only=True) == 0

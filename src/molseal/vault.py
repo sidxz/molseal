@@ -16,6 +16,7 @@ ever written under a key the rotation is about to delete.
 from __future__ import annotations
 
 import logging
+import struct
 import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
@@ -79,11 +80,16 @@ def _mint(provider: KeyProvider, tenant_id: UUID, kind: str, version: int) -> tu
 
 def _row_plaintext(tenant_id: UUID, key: bytes, rec: StructureRecord) -> bytes:
     """The padded plaintext of a row. SealError if it does not open under `key` and its label."""
-    return open_sealed(key, rec.nonce, rec.ciphertext, row_aad(tenant_id, rec.id, rec.data_key_version, rec.row_version))
+    try:
+        return open_sealed(key, rec.nonce, rec.ciphertext,
+                           row_aad(tenant_id, rec.id, rec.data_key_version, rec.row_version))
+    except (ValueError, struct.error) as exc:    # a nonce of the wrong length or a version beyond 32 bits: an edited row
+        raise SealError("ciphertext did not open") from exc
 
 
 class VaultError(MolsealError):
-    """The vault cannot proceed: missing key rows, a persistent write conflict, or no snapshot_dir."""
+    """The vault cannot proceed: missing key rows, a persistent write conflict, no snapshot_dir, or a row a
+    key rotation cannot open."""
 
 
 class NotFound(VaultError):
@@ -468,11 +474,7 @@ def _reseal_pass(store: StructureStore, tenant_id: UUID, keys: TenantKeys, upto:
     n = last = 0
     while recs := store.changes_since(tenant_id, last, batch, upto):
         out = [_resealed(tenant_id, keys, r) for r in recs if r.data_key_version < keys.data_key_version]
-        try:
-            n += store.reseal_structures(out)
-        except KeyVersionChanged as exc:
-            raise VaultError(f"tenant {tenant_id}: another caller finished this key rotation and started the next; "
-                             "call again") from exc
+        n += store.reseal_structures(out)   # KeyVersionChanged: another caller finished this rotation, began the next
         last = recs[-1].seq
         log.debug("tenant %s: %d rows re-encrypted through seq %d", tenant_id, n, last)
     return n
@@ -491,23 +493,30 @@ def rotate_tenant_keys(store: StructureStore, tenant_id: UUID, provider: KeyProv
     re-encrypted.
 
     Every process that opens a vault for the tenant must run a molseal release with key rotation first: an
-    older one keeps writing rows under the old key after the rotation deletes it."""
+    older one keeps writing rows under the old key after the rotation deletes it.
+
+    Raises KeyProviderError, writing nothing, if `provider` cannot unwrap the tenant's keys; VaultError if a
+    row does not open (the rotation stays pending, old keys included, until the row is fixed or deleted);
+    KeyVersionChanged, a VersionConflict, if another caller finished this rotation and started the next one
+    meanwhile: call again."""
     if batch < 1:
         raise ValueError("batch must be at least 1")
     rows = store.get_tenant_keys(tenant_id)
     if {k.kind for k in rows} != {"data", "hmac"}:
         raise VaultError(f"tenant {tenant_id} has no key rows")
-    if _pending(rows):
-        log.info("tenant %s: resuming key rotation", tenant_id)
-    elif resume_only:
+    pending = _pending(rows)
+    if resume_only and not pending:
         return 0
+    # before anything is written: new keys wrapped under a provider that is not the tenant's would lock it out
+    keys = _unwrap_keyring(provider, tenant_id, rows)
+    if pending:
+        log.info("tenant %s: resuming key rotation", tenant_id)
     else:
         top = _top_versions(rows)
         new = [_mint(provider, tenant_id, kind, top[kind] + 1)[1] for kind in ("data", "hmac")]
         if store.start_key_rotation(tenant_id, new):        # False: another caller got there first; join it
             log.info("tenant %s: key rotation to data v%d, hmac v%d started", tenant_id, top["data"] + 1, top["hmac"] + 1)
-        rows = store.get_tenant_keys(tenant_id)
-    keys = _unwrap_keyring(provider, tenant_id, rows)
+        keys = _unwrap_keyring(provider, tenant_id, store.get_tenant_keys(tenant_id), keys)
     upto = store.seq_cursor(tenant_id)
     n = 0
     for _ in range(3):      # one pass normally (see _reseal_pass); the bound guards against a bug looping forever
