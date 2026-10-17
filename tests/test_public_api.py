@@ -17,9 +17,9 @@ EXPORTED = [
     "provider_from_spec", "generate_key_file", "rewrap_tenant", "FingerprintSpec", "MORGAN2",
     "MORGAN2_CHIRAL", "FEATMORGAN2", "Payload", "canonicalize", "metrics", "MolsealError",
     "StructureError", "KeyProviderError", "KeyFileError", "VaultError", "NotFound", "VersionConflict",
-    "SealError", "PayloadError", "SnapshotError", "SnapshotFormatError",
+    "SealError", "PayloadError", "SnapshotError", "SnapshotFormatError", "rotate_tenant_keys", "KeyVersionChanged",
 ]
-ERRORS = [n for n in EXPORTED if n.endswith(("Error", "Conflict")) or n == "NotFound"]
+ERRORS = [n for n in EXPORTED if n.endswith(("Error", "Conflict", "Changed")) or n == "NotFound"]
 
 
 def test_top_level_exports_cover_the_documented_surface():

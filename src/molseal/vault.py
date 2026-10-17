@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
 from itertools import batched
 from pathlib import Path
 from uuid import UUID
@@ -25,13 +26,13 @@ from uuid import UUID
 import numpy as np
 
 from . import snapshot
-from .crypto import open_sealed, pad, row_aad, seal, unpad
+from .crypto import SealError, open_sealed, pad, row_aad, seal, unpad
 from .engine import DEFAULT_FAMILIES, MORGAN2, FingerprintSpec, QueryKind, StructureError, StructureIndex, canonicalize
 from .errors import MolsealError
 from .keys import (KeyProvider, KeyProviderError, TenantKeys, exact_key_hmac, new_tenant_secret,
                    unwrap_tenant_key, wrap_tenant_key)
 from .metrics import Metric, tanimoto
-from .payload import Payload, decode, encode
+from .payload import Payload, PayloadError, decode, encode
 from .store import KeyVersionChanged, StructureRecord, StructureStore, VersionConflict, WrappedKey
 
 log = logging.getLogger(__name__)
@@ -420,7 +421,9 @@ def rewrap_tenant(store: StructureStore, tenant_id: UUID, old: KeyProvider, new:
 
     Each new blob is unwrapped and compared with the secret before anything is written, and the rows
     are replaced in one transaction, so a misconfigured `new` changes nothing. Vaults that are already
-    open keep working: they hold the unwrapped tenant keys. Returns the number of rows rewritten."""
+    open keep working: they hold the unwrapped tenant keys. Returns the number of rows rewritten.
+    Raises VersionConflict, changing nothing, if a key rotation started or finished meanwhile; run it
+    again."""
     rows = store.get_tenant_keys(tenant_id)
     if not rows:
         raise VaultError(f"tenant {tenant_id} has no key rows")
@@ -433,3 +436,84 @@ def rewrap_tenant(store: StructureStore, tenant_id: UUID, old: KeyProvider, new:
         out.append(WrappedKey(k.kind, k.version, blob))
     store.replace_tenant_keys(tenant_id, out)
     return len(out)
+
+
+def _pending(rows: list[WrappedKey]) -> bool:
+    """A key rotation started and has not finished: some kind has two versions."""
+    kinds = [k.kind for k in rows]
+    return len(kinds) != len(set(kinds))
+
+
+def _resealed(tenant_id: UUID, keys: TenantKeys, rec: StructureRecord) -> tuple[StructureRecord, dict[str, bytes]]:
+    """`rec` sealed again under the current keys at the same row version, with its exact-key hashes. The padded
+    plaintext is resealed as is; decoding it only validates the row and yields its exact keys."""
+    key = keys.data.get(rec.data_key_version)
+    if key is None:
+        raise VaultError(f"{rec.id}: sealed under data key version {rec.data_key_version}, which has no key row")
+    try:
+        plaintext = _row_plaintext(tenant_id, key, rec)
+        payload = decode(unpad(plaintext))
+    except (SealError, PayloadError) as exc:
+        raise VaultError(f"{rec.id}: does not open under data key version {rec.data_key_version}; "
+                         "the rotation stays pending") from exc
+    dv = keys.data_key_version
+    nonce, ct = seal(keys.data_key, plaintext, row_aad(tenant_id, rec.id, dv, rec.row_version))
+    hmacs = {kind: exact_key_hmac(keys.hmac_key, kind, v) for kind, v in payload.keys.items()}
+    return replace(rec, data_key_version=dv, nonce=nonce, ciphertext=ct), hmacs
+
+
+def _reseal_pass(store: StructureStore, tenant_id: UUID, keys: TenantKeys, upto: int, batch: int) -> int:
+    """Re-encrypt every row with seq <= `upto` that is still under an older data key version. Rows written after
+    `upto` are under the current version already: the store refuses anything else."""
+    n = last = 0
+    while recs := store.changes_since(tenant_id, last, batch, upto):
+        out = [_resealed(tenant_id, keys, r) for r in recs if r.data_key_version < keys.data_key_version]
+        try:
+            n += store.reseal_structures(out)
+        except KeyVersionChanged as exc:
+            raise VaultError(f"tenant {tenant_id}: another caller finished this key rotation and started the next; "
+                             "call again") from exc
+        last = recs[-1].seq
+        log.debug("tenant %s: %d rows re-encrypted through seq %d", tenant_id, n, last)
+    return n
+
+
+def rotate_tenant_keys(store: StructureStore, tenant_id: UUID, provider: KeyProvider, *,
+                       resume_only: bool = False, batch: int = 1000) -> int:
+    """Give the tenant new data and HMAC keys and re-encrypt every row under them, so keys taken from a
+    compromised process stop opening the database. Vaults keep reading and writing meanwhile, in this process
+    and others, and pick up the new keys on their own; restart them afterwards so no process memory keeps the
+    old keys.
+
+    Rows are re-encrypted in place, `batch` per transaction, so after a crash a second call finishes the job.
+    With `resume_only` a call only finishes a pending rotation and never starts one: the call for a worker's
+    startup. Otherwise a call after a finished rotation starts the next. Returns how many rows this call
+    re-encrypted.
+
+    Every process that opens a vault for the tenant must run a molseal release with key rotation first: an
+    older one keeps writing rows under the old key after the rotation deletes it."""
+    if batch < 1:
+        raise ValueError("batch must be at least 1")
+    rows = store.get_tenant_keys(tenant_id)
+    if {k.kind for k in rows} != {"data", "hmac"}:
+        raise VaultError(f"tenant {tenant_id} has no key rows")
+    if _pending(rows):
+        log.info("tenant %s: resuming key rotation", tenant_id)
+    elif resume_only:
+        return 0
+    else:
+        top = _top_versions(rows)
+        new = [_mint(provider, tenant_id, kind, top[kind] + 1)[1] for kind in ("data", "hmac")]
+        if store.start_key_rotation(tenant_id, new):        # False: another caller got there first; join it
+            log.info("tenant %s: key rotation to data v%d, hmac v%d started", tenant_id, top["data"] + 1, top["hmac"] + 1)
+        rows = store.get_tenant_keys(tenant_id)
+    keys = _unwrap_keyring(provider, tenant_id, rows)
+    upto = store.seq_cursor(tenant_id)
+    n = 0
+    for _ in range(3):      # one pass normally (see _reseal_pass); the bound guards against a bug looping forever
+        n += _reseal_pass(store, tenant_id, keys, upto, batch)
+        if store.finish_key_rotation(tenant_id):
+            log.info("tenant %s: key rotation to data v%d finished, %d rows re-encrypted", tenant_id,
+                     keys.data_key_version, n)
+            return n
+    raise VaultError(f"tenant {tenant_id}: rows under an old data key version remain; call again")

@@ -163,3 +163,17 @@ def test_rotation_primitives_pg(pg_store):
     assert pg_store.find_by_key(t, "k", b"A" * 32) == [a]
     assert pg_store.finish_key_rotation(t)
     assert sorted(k.version for k in pg_store.get_tenant_keys(t)) == [2, 2]
+
+
+def test_rotation_end_to_end_pg(pg_store, tmp_path):
+    from molseal import FileKeyProvider, Vault, generate_key_file, rotate_tenant_keys
+    kp = tmp_path / "kek.key"
+    generate_key_file(kp)
+    provider, t = FileKeyProvider(kp), uuid4()
+    v = Vault(pg_store, provider, t)
+    ids = [uuid4() for _ in range(25)]
+    v.put_many([(i, "CCO", {"name": str(i)}) for i in ids])
+    assert rotate_tenant_keys(pg_store, t, provider, batch=10) == 25
+    assert {r.data_key_version for r in pg_store.changes_since(t, 0)} == {2}
+    assert Vault(pg_store, provider, t).find_exact("name", str(ids[3])) == [ids[3]]
+    assert v.find_exact("name", str(ids[4])) == [ids[4]]
