@@ -8,7 +8,7 @@ from sqlalchemy import delete, update
 from molseal import engine, keys
 from molseal.payload import Payload
 from molseal.store import SqlStore, StructureRecord, VersionConflict, structure_keys, structures, tenant_keys, tenants
-from molseal.vault import NotFound, Vault, VaultError, rewrap_tenant
+from molseal.vault import NotFound, Vault, VaultError, _mint, rewrap_tenant
 
 
 @pytest.fixture
@@ -195,7 +195,7 @@ def test_an_unindexable_row_is_counted_and_does_not_loop_rebuilds(env, monkeypat
     v1.put(good, "CCO")
     v1.put(bad, "CCN")
     # A live row whose stored SMILES RDKit cannot read (written past canonicalize, as a bad version would).
-    nonce, ct = v1._seal(bad, 2, Payload("C1CC", {}, False))
+    nonce, ct = v1._seal(v1._keys, bad, 2, Payload("C1CC", {}, False))
     store.put_structure(StructureRecord(t, bad, 2, 1, nonce, ct, False), {}, 1)
     v2 = Vault(store, kp, t)
     assert v2._index.unindexed == {bad} and len(v2) == 1
@@ -350,7 +350,7 @@ def test_a_format_one_snapshot_is_rebuilt_and_resaved_as_format_two(env, monkeyp
     assert len(warned) == 1 and str(path) in warned[0].getMessage()
     assert v2.substructure("CCO") == [a]
     v2.save_snapshot()
-    assert snapshot.load(path, v2._keys.data_key, t, v2._keys.data_key_version).substructure("CCO") == [a]
+    assert snapshot.load(path, v2._keys.data, t).substructure("CCO") == [a]
 
 
 def test_a_tampered_snapshot_still_refuses_to_open(env):
@@ -428,3 +428,76 @@ def test_rewrap_refuses_a_tenant_without_key_rows(env):
     store, kp, _ = env
     with pytest.raises(VaultError):
         rewrap_tenant(store, uuid4(), kp, kp)
+
+
+def _start_rotation(store, kp, t):
+    """What rotate_tenant_keys does first: new key rows at version 2, made current. Nothing re-encrypted."""
+    assert store.start_key_rotation(t, [_mint(kp, t, kind, 2)[1] for kind in ("data", "hmac")])
+
+
+def test_an_open_vault_writes_under_the_new_key_once_a_rotation_starts(env):
+    store, kp, _ = env
+    t, a, b = uuid4(), uuid4(), uuid4()
+    v = Vault(store, kp, t)
+    v.put(a, "CCO", {"inchikey": "A"})
+    _start_rotation(store, kp, t)
+    v.put(b, "CCN", {"inchikey": "B"})                    # refused under v1 once, reloaded, written under v2
+    v.put_many([(uuid4(), "CCCl", None)])
+    assert store.get_structure(t, b).data_key_version == 2
+    assert {r.data_key_version for r in store.changes_since(t, 0)} == {1, 2}
+    assert v.get(a).smiles == "CCO"                       # still under v1, which the vault keeps
+    fresh = Vault(store, kp, t)
+    assert sorted(fresh._keys.data) == [1, 2]
+    assert fresh.find_exact("inchikey", "A") == [a] and fresh.find_exact("inchikey", "B") == [b]
+
+
+def test_an_open_vault_reads_rows_written_under_a_newer_key(env):
+    store, kp, _ = env
+    t, a = uuid4(), uuid4()
+    old = Vault(store, kp, t)
+    _start_rotation(store, kp, t)
+    Vault(store, kp, t).put(a, "CCO")
+    assert old.substructure("CCO") == [a] and old.get(a).smiles == "CCO"
+
+
+def test_find_exact_reloads_when_the_hmac_key_moved(env):
+    store, kp, _ = env
+    t, a = uuid4(), uuid4()
+    old = Vault(store, kp, t)
+    _start_rotation(store, kp, t)
+    Vault(store, kp, t).put(a, "CCO", {"inchikey": "A"})  # hashed under hmac v2 only
+    assert old.find_exact("inchikey", "A") == [a]
+
+
+def test_save_snapshot_from_a_vault_that_missed_the_rotation_uses_the_new_key(env):
+    store, kp, snap = env
+    t = uuid4()
+    v = Vault(store, kp, t, snapshot_dir=snap)
+    v.put(uuid4(), "CCO")
+    _start_rotation(store, kp, t)
+    path = v.save_snapshot()                              # v only ever saw v1
+    assert snapshot._header(path.read_bytes())[0]["key_version"] == 2
+
+
+def test_a_snapshot_from_before_the_rotation_still_loads_while_the_old_key_exists(env, caplog):
+    store, kp, snap = env
+    t, a = uuid4(), uuid4()
+    v = Vault(store, kp, t, snapshot_dir=snap)
+    v.put(a, "CCO")
+    v.save_snapshot()
+    _start_rotation(store, kp, t)
+    with caplog.at_level("WARNING", logger="molseal.vault"):
+        mid = Vault(store, kp, t, snapshot_dir=snap)
+    assert not [r for r in caplog.records if "ignoring snapshot" in r.getMessage()]
+    assert mid.substructure("CCO") == [a]
+
+
+def test_key_rows_behind_the_tenant_versions_refuse_to_open(env):
+    store, kp, _ = env
+    t = uuid4()
+    Vault(store, kp, t).put(uuid4(), "CCO")
+    with store.engine.begin() as conn:
+        conn.execute(update(tenants).where(tenants.c.tenant_id == t).values(data_key_version=2))
+    with pytest.raises(VaultError, match="missing"):
+        Vault(store, kp, t)
+

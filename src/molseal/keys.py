@@ -149,13 +149,30 @@ def provider_from_spec(spec: str) -> KeyProvider:
 
 @dataclass(frozen=True)
 class TenantKeys:
-    """The unwrapped per-tenant secrets a Vault holds in memory. The secrets stay out of repr so a
-    traceback or log line never prints them."""
+    """The unwrapped per-tenant secrets a Vault holds, by version. Mid-rotation a tenant has two of each; the
+    current ones are the highest. repr shows the versions only, so a traceback or log line never prints a key."""
 
-    data_key: bytes = field(repr=False)
-    data_key_version: int
-    hmac_key: bytes = field(repr=False)
-    hmac_key_version: int
+    data: dict[int, bytes] = field(repr=False)
+    hmac: dict[int, bytes] = field(repr=False)
+
+    def __repr__(self) -> str:
+        return f"TenantKeys(data={sorted(self.data)}, hmac={sorted(self.hmac)})"
+
+    @property
+    def data_key_version(self) -> int:
+        return max(self.data)
+
+    @property
+    def hmac_key_version(self) -> int:
+        return max(self.hmac)
+
+    @property
+    def data_key(self) -> bytes:
+        return self.data[self.data_key_version]
+
+    @property
+    def hmac_key(self) -> bytes:
+        return self.hmac[self.hmac_key_version]
 
 
 def new_tenant_secret() -> bytes:

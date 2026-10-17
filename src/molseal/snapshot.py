@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import struct
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -23,12 +23,13 @@ MAGIC = b"MOLSEAL1"       # file signature only; the readable format is FORMAT_V
 
 
 class SnapshotError(MolsealError):
-    """The file is not a snapshot of this tenant and key version, is damaged, or did not open."""
+    """The file is not a snapshot of this tenant, is damaged, or did not open."""
 
 
 class SnapshotFormatError(SnapshotError):
-    """A snapshot in a format this build does not read. Safe to ignore and rebuild, but the header is not
-    authenticated, so an edited format number raises this too."""
+    """A snapshot the vault may discard and rebuild: a format this build does not read, or a data key version the
+    tenant no longer has (retired by a key rotation). The header is not authenticated, so an edited format or
+    version raises this too."""
 
 
 def aad_prefix(tenant_id: UUID, key_version: int, last_seq: int) -> bytes:
@@ -108,20 +109,25 @@ def _split_parts(blob: bytes) -> dict[str, bytes]:
     return parts
 
 
-def load(path: Path, data_key: bytes, tenant_id: UUID, key_version: int,
+def load(path: Path, data_keys: Mapping[int, bytes], tenant_id: UUID,
          families: Sequence[FingerprintSpec] = DEFAULT_FAMILIES) -> StructureIndex:
-    """Read a snapshot written by `save` for the same tenant and key version. `families` decides which
-    fingerprint matrices come back; one the file lacks is recomputed from the stored structures."""
+    """Read a snapshot written by `save` for the same tenant, under whichever data key version in `data_keys`
+    (version -> key) its header names; a vault passes every version it holds, so a snapshot from before a key
+    rotation opens until the rotation finishes. `families` decides which fingerprint matrices come back; one
+    the file lacks is recomputed from the stored structures."""
     # ponytail: whole file in memory; stream chunk by chunk when snapshots pass a few GB
     data = Path(path).read_bytes()
     header, off = _header(data)
     if header.get("format") != FORMAT_VERSION:
         raise SnapshotFormatError(f"snapshot format {header.get('format')!r}; this build reads {FORMAT_VERSION}")
-    if header.get("tenant_id") != str(tenant_id) or header.get("key_version") != key_version:
-        raise SnapshotError("snapshot belongs to another tenant or key version")
+    if header.get("tenant_id") != str(tenant_id):
+        raise SnapshotError("snapshot belongs to another tenant")
+    version = header.get("key_version")
+    if not isinstance(version, int) or version not in data_keys:
+        raise SnapshotFormatError(f"snapshot is under data key version {version!r}, which the tenant no longer has")
     chunks = _chunks(data, off, int(header["chunk_count"]))
     try:
-        blob = open_chunks(data_key, chunks, aad_prefix(tenant_id, key_version, int(header["last_seq"])))
+        blob = open_chunks(data_keys[version], chunks, aad_prefix(tenant_id, version, int(header["last_seq"])))
     except SealError as exc:
         raise SnapshotError("snapshot did not open: wrong key, edited header, or tampered chunk") from exc
     index = StructureIndex.from_parts(_split_parts(blob), families)

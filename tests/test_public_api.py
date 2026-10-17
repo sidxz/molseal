@@ -35,8 +35,8 @@ def test_every_error_shares_one_base():
 
 
 def test_tenant_keys_repr_hides_the_secrets():
-    r = repr(keys.TenantKeys(b"\x01" * 32, 1, b"\x02" * 32, 1))
-    assert "\\x01" not in r and "\\x02" not in r and "data_key_version=1" in r
+    r = repr(keys.TenantKeys({1: b"\x01" * 32}, {1: b"\x02" * 32}))
+    assert "\\x01" not in r and "\\x02" not in r and r == "TenantKeys(data=[1], hmac=[1])"
 
 
 def test_package_ships_py_typed():

@@ -6,6 +6,11 @@ pulls the new rows first. If it moved backwards, or the live counts disagree, th
 
 Multi-writer safety: put and delete compare-and-set on row_version inside the store transaction
 and retry the whole read-seal-write cycle on conflict, so two writers never reuse a version.
+
+Key rotation (rotate_tenant_keys) runs while vaults stay open. A vault holds every key version it has seen
+and loads a new one when a row, a refused write, or the closing check of find_exact and save_snapshot names
+a version it lacks. Under the tenant lock the store refuses writes sealed under an old version, so no row is
+ever written under a key the rotation is about to delete.
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from .keys import (KeyProvider, KeyProviderError, TenantKeys, exact_key_hmac, ne
                    unwrap_tenant_key, wrap_tenant_key)
 from .metrics import Metric, tanimoto
 from .payload import Payload, decode, encode
-from .store import StructureRecord, StructureStore, VersionConflict, WrappedKey
+from .store import KeyVersionChanged, StructureRecord, StructureStore, VersionConflict, WrappedKey
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +45,40 @@ def _canonical(id: UUID, smiles: str) -> str:
         return canonicalize(smiles)
     except StructureError as exc:
         raise StructureError(f"{id}: {exc}") from exc
+
+
+def _top_versions(rows: Iterable[WrappedKey]) -> dict[str, int]:
+    """The highest version of each kind. These are the current ones: a rotation inserts the next version and
+    makes it current in one transaction, and deletes older ones only at the end."""
+    top: dict[str, int] = {}
+    for k in rows:
+        top[k.kind] = max(top.get(k.kind, 0), k.version)
+    return top
+
+
+def _unwrap_keyring(provider: KeyProvider, tenant_id: UUID, rows: list[WrappedKey],
+                    held: TenantKeys | None = None) -> TenantKeys:
+    """Every key row unwrapped. Versions `held` already has are reused, so a reload asks the provider only
+    for new ones, and kept even when their rows are gone."""
+    rings = {"data": dict(held.data) if held else {}, "hmac": dict(held.hmac) if held else {}}
+    for k in rows:
+        if k.version not in rings[k.kind]:
+            rings[k.kind][k.version] = unwrap_tenant_key(provider, tenant_id, k.kind, k.version, k.wrapped)
+    return TenantKeys(rings["data"], rings["hmac"])
+
+
+def _mint(provider: KeyProvider, tenant_id: UUID, kind: str, version: int) -> tuple[bytes, WrappedKey]:
+    """A new secret and its key row, checked to unwrap to the same bytes before anything is written."""
+    secret = new_tenant_secret()
+    blob = wrap_tenant_key(provider, tenant_id, kind, version, secret)
+    if unwrap_tenant_key(provider, tenant_id, kind, version, blob) != secret:
+        raise KeyProviderError(f"key provider does not round-trip the new {kind} key; nothing was written")
+    return secret, WrappedKey(kind, version, blob)
+
+
+def _row_plaintext(tenant_id: UUID, key: bytes, rec: StructureRecord) -> bytes:
+    """The padded plaintext of a row. SealError if it does not open under `key` and its label."""
+    return open_sealed(key, rec.nonce, rec.ciphertext, row_aad(tenant_id, rec.id, rec.data_key_version, rec.row_version))
 
 
 class VaultError(MolsealError):
@@ -78,27 +117,38 @@ class Vault:
     # ----- keys -----
 
     def _load_or_create_keys(self) -> TenantKeys:
-        dv, hv = self.tenant.data_key_version, self.tenant.hmac_key_version
-        wrapped = {(k.kind, k.version): k for k in self.store.get_tenant_keys(self.tenant_id)}
-        if not wrapped:
+        rows = self.store.get_tenant_keys(self.tenant_id)
+        if not rows:
             if self.store.max_seq(self.tenant_id) != 0:
                 raise VaultError(f"tenant {self.tenant_id} has structures but no key rows; refusing to mint new keys")
-            data, hm = new_tenant_secret(), new_tenant_secret()
-            wd = wrap_tenant_key(self._key_provider, self.tenant_id, "data", dv, data)
-            wh = wrap_tenant_key(self._key_provider, self.tenant_id, "hmac", hv, hm)
-            for kind, version, blob, secret in (("data", dv, wd, data), ("hmac", hv, wh, hm)):
-                if unwrap_tenant_key(self._key_provider, self.tenant_id, kind, version, blob) != secret:
-                    raise KeyProviderError(f"key provider does not round-trip the new {kind} key; nothing was written")
-            self.store.put_tenant_keys(self.tenant_id, [WrappedKey("data", dv, wd), WrappedKey("hmac", hv, wh)])
-            return TenantKeys(data, dv, hm, hv)
-        try:
-            d, h = wrapped[("data", dv)], wrapped[("hmac", hv)]
-        except KeyError as exc:
-            raise VaultError("tenant key rows are missing for the current key versions") from exc
-        return TenantKeys(
-            unwrap_tenant_key(self._key_provider, self.tenant_id, "data", dv, d.wrapped), dv,
-            unwrap_tenant_key(self._key_provider, self.tenant_id, "hmac", hv, h.wrapped), hv,
-        )
+            dv, hv = self.tenant.data_key_version, self.tenant.hmac_key_version
+            (data, wd), (hm, wh) = (_mint(self._key_provider, self.tenant_id, "data", dv),
+                                    _mint(self._key_provider, self.tenant_id, "hmac", hv))
+            self.store.put_tenant_keys(self.tenant_id, [wd, wh])
+            return TenantKeys({dv: data}, {hv: hm})
+        top = _top_versions(rows)
+        # the tenant row was read first and versions only grow, so rows below it are missing, not stale
+        if top.get("data", 0) < self.tenant.data_key_version or top.get("hmac", 0) < self.tenant.hmac_key_version:
+            raise VaultError("tenant key rows are missing for the current key versions")
+        return _unwrap_keyring(self._key_provider, self.tenant_id, rows)
+
+    def _reload_keys(self, rows: list[WrappedKey] | None = None) -> TenantKeys:
+        """Unwrap the key versions this vault does not hold yet and swap the keyring in one assignment, so a
+        reader outside the lock sees the old keyring or the new one, never a mix."""
+        # ponytail: no reload lock; two threads may reload at once, both build a valid keyring and the last
+        # assignment wins. Add a lock if provider calls get expensive.
+        if rows is None:
+            rows = self.store.get_tenant_keys(self.tenant_id)
+        self._keys = _unwrap_keyring(self._key_provider, self.tenant_id, rows, self._keys)
+        return self._keys
+
+    def _current(self, k: TenantKeys) -> TenantKeys:
+        """`k` if it holds the tenant's current versions, read now from the key rows; else the reloaded keyring."""
+        rows = self.store.get_tenant_keys(self.tenant_id)
+        top = _top_versions(rows)
+        if top.get("data") in k.data and top.get("hmac") in k.hmac:
+            return k
+        return self._reload_keys(rows)
 
     # ----- snapshot -----
 
@@ -110,7 +160,7 @@ class Vault:
         if p is None or not p.exists():
             return None
         try:
-            return snapshot.load(p, self._keys.data_key, self.tenant_id, self._keys.data_key_version, self.families)
+            return snapshot.load(p, self._keys.data, self.tenant_id, self.families)
         except snapshot.SnapshotFormatError as exc:
             log.warning("ignoring snapshot %s: %s", p, exc)
             return None          # an older format: rebuild from the store, the next save overwrites it
@@ -123,18 +173,22 @@ class Vault:
             raise VaultError("no snapshot_dir configured")
         p.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
-            snapshot.save(self._index, p, self._keys.data_key, self.tenant_id, self._keys.data_key_version)
+            k = self._current(self._keys)      # a vault that only searched may not have seen a rotation
+            snapshot.save(self._index, p, k.data_key, self.tenant_id, k.data_key_version)
         return p
 
     # ----- row crypto -----
 
     def _open(self, rec: StructureRecord) -> Payload:
-        aad = row_aad(self.tenant_id, rec.id, rec.data_key_version, rec.row_version)
-        return decode(unpad(open_sealed(self._keys.data_key, rec.nonce, rec.ciphertext, aad)))
+        v = rec.data_key_version
+        key = self._keys.data.get(v) or self._reload_keys().data.get(v)
+        if key is None:
+            raise VaultError(f"{rec.id}: sealed under data key version {v}, which has no key row")
+        return decode(unpad(_row_plaintext(self.tenant_id, key, rec)))
 
-    def _seal(self, id: UUID, row_version: int, payload: Payload) -> tuple[bytes, bytes]:
-        aad = row_aad(self.tenant_id, id, self._keys.data_key_version, row_version)
-        return seal(self._keys.data_key, pad(encode(payload)), aad)
+    def _seal(self, k: TenantKeys, id: UUID, row_version: int, payload: Payload) -> tuple[bytes, bytes]:
+        aad = row_aad(self.tenant_id, id, k.data_key_version, row_version)
+        return seal(k.data_key, pad(encode(payload)), aad)
 
     # ----- writes -----
 
@@ -143,10 +197,8 @@ class Vault:
         nothing written. `keys` are the caller's exact lookup keys, kind -> value, for find_exact.
         Returns the row's new version: 1 for a new id, one more than before for a replaced one."""
         canonical = _canonical(id, smiles)
-        ek = dict(keys or {})
-        hmacs = {k: exact_key_hmac(self._keys.hmac_key, k, v) for k, v in ek.items()}
         with self._lock:
-            seq, rv = self._write(id, Payload(canonical, ek, False), hmacs)
+            seq, rv = self._write(id, Payload(canonical, dict(keys or {}), False))
             self._index.add_batch([(id, canonical, rv)], self.num_threads)
             self._advance(seq)
         return rv
@@ -154,7 +206,7 @@ class Vault:
     def delete(self, id: UUID) -> int:
         """Tombstone one structure; NotFound if the tenant never held `id`. Returns the row's new version."""
         with self._lock:
-            seq, rv = self._write(id, Payload("", {}, True), {})
+            seq, rv = self._write(id, Payload("", {}, True))
             self._index.mark_dead(id, rv)
             self._advance(seq)
         return rv
@@ -180,42 +232,50 @@ class Vault:
         prepared = [(i, _canonical(i, s), dict(k or {})) for i, s, k in group]   # StructureError before any write
         with self._lock:
             for _ in range(WRITE_ATTEMPTS):
+                k = self._keys          # once per attempt: label, key, version and HMACs from one keyring
                 existing = self.store.get_structures(self.tenant_id, ids)
                 batch, items = [], []
                 for i, canonical, ek in prepared:
                     ex = existing.get(i)
                     expected = None if ex is None else ex.row_version
                     rv = 1 if expected is None else expected + 1
-                    nonce, ct = self._seal(i, rv, Payload(canonical, ek, False))
-                    rec = StructureRecord(self.tenant_id, i, rv, self._keys.data_key_version, nonce, ct, False)
-                    batch.append((rec, {k: exact_key_hmac(self._keys.hmac_key, k, v) for k, v in ek.items()}, expected))
+                    nonce, ct = self._seal(k, i, rv, Payload(canonical, ek, False))
+                    rec = StructureRecord(self.tenant_id, i, rv, k.data_key_version, nonce, ct, False)
+                    batch.append((rec, {kind: exact_key_hmac(k.hmac_key, kind, v) for kind, v in ek.items()}, expected))
                     items.append((i, canonical, rv))
                 try:
                     seqs = self.store.put_structures(batch)
                     break
+                except KeyVersionChanged:
+                    self._reload_keys()
                 except VersionConflict:
                     continue
             else:
-                raise VaultError(f"chunk of {len(group)}: row_version conflict persisted after {WRITE_ATTEMPTS} attempts")
+                raise VaultError(f"chunk of {len(group)}: write conflict persisted after {WRITE_ATTEMPTS} attempts")
             self._index.add_batch(items, self.num_threads)
             self._advance(seqs[0], seqs[-1])
         return len(batch)
 
-    def _write(self, id: UUID, payload: Payload, hmacs: dict[str, bytes]) -> tuple[int, int]:
-        """Read the row version, seal at the next one, compare-and-set. Retries on conflict."""
+    def _write(self, id: UUID, payload: Payload) -> tuple[int, int]:
+        """Read the row version, seal at the next one, compare-and-set. Retries on conflict, reloading the keys
+        first when a key rotation moved the version."""
         for _ in range(WRITE_ATTEMPTS):
+            k = self._keys              # once per attempt: label, key, version and HMACs from one keyring
             existing = self.store.get_structure(self.tenant_id, id)
             if existing is None and payload.deleted:
                 raise NotFound(str(id))
             expected = None if existing is None else existing.row_version
             rv = 1 if expected is None else expected + 1
-            nonce, ct = self._seal(id, rv, payload)
-            rec = StructureRecord(self.tenant_id, id, rv, self._keys.data_key_version, nonce, ct, payload.deleted)
+            nonce, ct = self._seal(k, id, rv, payload)
+            rec = StructureRecord(self.tenant_id, id, rv, k.data_key_version, nonce, ct, payload.deleted)
+            hmacs = {kind: exact_key_hmac(k.hmac_key, kind, v) for kind, v in payload.keys.items()}
             try:
                 return self.store.put_structure(rec, hmacs, expected), rv
+            except KeyVersionChanged:
+                self._reload_keys()
             except VersionConflict:
                 continue
-        raise VaultError(f"{id}: row_version conflict persisted after {WRITE_ATTEMPTS} attempts")
+        raise VaultError(f"{id}: write conflict persisted after {WRITE_ATTEMPTS} attempts")
 
     def _advance(self, first_seq: int, last_seq: int | None = None) -> None:
         """After our own write(s): if nothing else landed in between, remember the last seq; otherwise catch up."""
@@ -238,9 +298,22 @@ class Vault:
     def find_exact(self, kind: str, value: str) -> list[UUID]:
         """Ids of live rows whose exact key `kind` equals `value`. The database holds only a keyed hash
         of each key, so every candidate is decrypted and checked before it is returned."""
-        h = exact_key_hmac(self._keys.hmac_key, kind, value)
+        k = self._keys
+        for _ in range(WRITE_ATTEMPTS):
+            found: dict[UUID, None] = {}
+            # Lowest version first: a rotation only moves rows up, so a row that moves between two queries is
+            # found by both (deduplicated), never by neither. The closing check then proves no row moved to a
+            # version this round did not query.
+            for v in sorted(k.hmac):
+                found.update(dict.fromkeys(self.store.find_by_key(self.tenant_id, kind, exact_key_hmac(k.hmac[v], kind, value))))
+            fresh = self._current(k)
+            if fresh is k:
+                break
+            k = fresh
+        else:
+            raise VaultError(f"tenant {self.tenant_id}: key versions kept changing during find_exact")
         out = []
-        for id_ in self.store.find_by_key(self.tenant_id, kind, h):
+        for id_ in found:
             p = self.get(id_)
             if p is not None and p.keys.get(kind) == value:   # the index row is a hint; the payload decides
                 out.append(id_)
