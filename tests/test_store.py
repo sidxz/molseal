@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 import sqlalchemy as sa
 
-from molseal.store import SqlStore, StructureRecord, VersionConflict, WrappedKey
+from molseal.store import KeyVersionChanged, SqlStore, StructureRecord, VersionConflict, WrappedKey, tenants
 
 
 @pytest.fixture
@@ -47,12 +47,27 @@ def test_replace_tenant_keys_swaps_blobs_and_leaves_other_tenants_alone(store):
     assert {k.wrapped for k in store.get_tenant_keys(u)} == {b"u1", b"u2"}
 
 
-def test_replace_tenant_keys_with_nothing_clears_the_tenant(store):
+def test_put_structures_refuses_a_row_sealed_under_an_old_key_version(store):
     t = uuid4()
     store.ensure_tenant(t)
-    store.put_tenant_keys(t, [WrappedKey("data", 1, b"w1")])
-    store.replace_tenant_keys(t, [])
-    assert store.get_tenant_keys(t) == []
+    with store.engine.begin() as conn:
+        conn.execute(sa.update(tenants).where(tenants.c.tenant_id == t).values(data_key_version=2, hmac_key_version=2))
+    with pytest.raises(KeyVersionChanged):
+        store.put_structures([(rec(t, uuid4()), {"k": b"h" * 32}, None)])
+    assert store.tenant_state(t) == (0, 0) and store.changes_since(t, 0) == []
+    assert issubclass(KeyVersionChanged, VersionConflict)
+
+
+def test_replace_tenant_keys_refuses_a_row_set_that_changed_since_it_was_read(store):
+    t = uuid4()
+    store.ensure_tenant(t)
+    store.put_tenant_keys(t, [WrappedKey("data", 1, b"w1"), WrappedKey("hmac", 1, b"w2")])
+    store.put_tenant_keys(t, [WrappedKey("data", 2, b"w3"), WrappedKey("hmac", 2, b"w4")])   # a rotation started
+    with pytest.raises(VersionConflict):
+        store.replace_tenant_keys(t, [WrappedKey("data", 1, b"n1"), WrappedKey("hmac", 1, b"n2")])
+    with pytest.raises(VersionConflict):
+        store.replace_tenant_keys(t, [])
+    assert {k.wrapped for k in store.get_tenant_keys(t)} == {b"w1", b"w2", b"w3", b"w4"}
 
 
 def test_list_tenants(store):

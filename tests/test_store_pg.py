@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import insert, update
 
-from molseal.store import StructureRecord, VersionConflict, WrappedKey, structures, tenants
+from molseal.store import KeyVersionChanged, StructureRecord, VersionConflict, WrappedKey, structures, tenants
 
 
 def _rec(t, i, rv=1):
@@ -124,3 +124,26 @@ def test_tenant_keys_replace_round_trip_pg(pg_store):
     pg_store.replace_tenant_keys(t, [WrappedKey("data", 1, b"n1"), WrappedKey("hmac", 1, b"n2")])
     assert {k.wrapped for k in pg_store.get_tenant_keys(t)} == {b"n1", b"n2"}
     assert t in pg_store.list_tenants()
+
+
+def test_a_writer_blocked_behind_a_key_version_bump_is_refused_pg(pg_store, pg_engine):
+    t = uuid4()
+    pg_store.ensure_tenant(t)
+    got = {}
+    conn_a = pg_engine.connect()
+    tx_a = conn_a.begin()
+    conn_a.execute(update(tenants).where(tenants.c.tenant_id == t).values(data_key_version=2, hmac_key_version=2))
+
+    def write():
+        try:
+            pg_store.put_structure(_rec(t, uuid4()), {}, None)
+        except KeyVersionChanged as exc:
+            got["exc"] = exc
+    th = threading.Thread(target=write)
+    th.start()
+    time.sleep(0.5)
+    assert th.is_alive(), "the writer waits for the tenant row"
+    tx_a.commit()
+    conn_a.close()
+    th.join(timeout=5)
+    assert "exc" in got and pg_store.changes_since(t, 0) == []

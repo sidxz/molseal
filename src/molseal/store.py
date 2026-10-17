@@ -95,13 +95,21 @@ class StructureRecord:
 
 
 class VersionConflict(MolsealError):
-    """put_structure found a row_version other than the one the caller read."""
+    """The stored state changed since the caller read it: another row_version, or another set of key rows."""
+
+
+class KeyVersionChanged(VersionConflict):
+    """A write was sealed under a data key version that is no longer the tenant's current one: a key rotation
+    started after the writer loaded its keys. The vault reloads its keys and retries."""
 
 
 class StructureStore(Protocol):
     """What a Vault needs from storage. SqlStore is the SQLAlchemy implementation; another backend must
-    keep two guarantees: `put_structure(s)` assigns sequence numbers in commit order under a per-tenant
-    lock, and every write is compare-and-set on the row version."""
+    keep three guarantees: `put_structure(s)` assigns sequence numbers in commit order under a per-tenant
+    lock; every write is compare-and-set on the row version; and, under that same lock, a record sealed
+    under a data key version other than the tenant's current one is refused with KeyVersionChanged.
+    Without the third, a writer that opened before a key rotation keeps writing rows under a key the
+    rotation then deletes."""
 
     def create_tables(self) -> None:
         """Create any missing tables; a no-op when they exist."""
@@ -119,7 +127,8 @@ class StructureStore(Protocol):
         """Insert key rows; a duplicate (kind, version) is an error."""
 
     def replace_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None:
-        """In one transaction, delete every key row of the tenant and insert `keys`."""
+        """Under the tenant lock, replace the blobs of the tenant's key rows. `keys` must name exactly the
+        (kind, version) rows present; otherwise raise VersionConflict and write nothing."""
 
     def list_tenants(self) -> list[UUID]:
         """Every tenant id, sorted."""
@@ -130,7 +139,8 @@ class StructureStore(Protocol):
 
     def put_structures(self, batch: list[tuple[StructureRecord, dict[str, bytes], int | None]]) -> list[int]:
         """Write a batch of one tenant's rows in one transaction, each compared against the row version
-        the caller read (None: no row). Raises VersionConflict and writes nothing on any mismatch.
+        the caller read (None: no row). Raises VersionConflict and writes nothing on any mismatch, and
+        KeyVersionChanged if a record is not sealed under the tenant's current data key version.
         Returns consecutive, commit-ordered sequence numbers."""
 
     def get_structure(self, tenant_id: UUID, id: UUID) -> StructureRecord | None:
@@ -163,6 +173,14 @@ def _record(row: sa.Row[Any]) -> StructureRecord:
 
 def _key_rows(tenant_id: UUID, keys: list[WrappedKey]) -> list[dict[str, Any]]:
     return [dict(tenant_id=tenant_id, kind=k.kind, version=k.version, wrapped=k.wrapped) for k in keys]
+
+
+def _lock_tenant(conn: sa.Connection, tenant_id: UUID) -> sa.Row[Any]:
+    """Take the tenant row lock for the rest of the transaction and return the current key versions. The
+    UPDATE changes nothing; it holds the row lock to commit on PostgreSQL and the write lock on SQLite."""
+    return conn.execute(update(tenants).where(tenants.c.tenant_id == tenant_id)
+                        .values(seq_cursor=tenants.c.seq_cursor)
+                        .returning(tenants.c.data_key_version, tenants.c.hmac_key_version)).one()
 
 
 class SqlStore:
@@ -199,11 +217,19 @@ class SqlStore:
             conn.execute(insert(tenant_keys), _key_rows(tenant_id, keys))
 
     def replace_tenant_keys(self, tenant_id: UUID, keys: list[WrappedKey]) -> None:
-        """One transaction: delete every key row of the tenant, insert the given ones."""
+        """Under the tenant lock, swap the blobs of exactly the rows present. A rewrap that read the rows
+        before a key rotation started or finished would otherwise delete the new rows or revive old ones."""
         with self.engine.begin() as conn:
-            conn.execute(delete(tenant_keys).where(tenant_keys.c.tenant_id == tenant_id))
-            if keys:
-                conn.execute(insert(tenant_keys), _key_rows(tenant_id, keys))
+            _lock_tenant(conn, tenant_id)
+            present = {(r.kind, r.version) for r in conn.execute(
+                select(tenant_keys.c.kind, tenant_keys.c.version).where(tenant_keys.c.tenant_id == tenant_id))}
+            if present != {(k.kind, k.version) for k in keys} or len(keys) != len(present):
+                raise VersionConflict(f"tenant {tenant_id}: key rows changed since they were read; run again")
+            for k in keys:
+                conn.execute(update(tenant_keys)
+                             .where(tenant_keys.c.tenant_id == tenant_id, tenant_keys.c.kind == k.kind,
+                                    tenant_keys.c.version == k.version)
+                             .values(wrapped=k.wrapped))
 
     def list_tenants(self) -> list[UUID]:
         with self.engine.connect() as conn:
@@ -226,8 +252,9 @@ class SqlStore:
         lock to commit, so the numbers stay consecutive and commit-ordered), every row is compare-and-set
         against the version the caller read (None: no row), new rows are bulk-inserted, existing rows
         updated, the live count adjusted once, and key rows replaced. Any conflict raises VersionConflict
-        and rolls the whole batch back. The cursor lock serializes every writer of the tenant, so the
-        version read below cannot go stale before commit."""
+        and rolls the whole batch back; a record sealed under another data key version than the tenant's
+        raises KeyVersionChanged. The cursor lock serializes every writer of the tenant, so the versions
+        read below cannot go stale before commit."""
         if not batch:
             return []
         ids = [rec.id for rec, _, _ in batch]
@@ -238,11 +265,16 @@ class SqlStore:
             raise ValueError("a batch holds one tenant's rows")
         n = len(batch)
         with self.engine.begin() as conn:
-            end = conn.execute(
+            row = conn.execute(
                 update(tenants).where(tenants.c.tenant_id == tenant_id)
-                .values(seq_cursor=tenants.c.seq_cursor + n).returning(tenants.c.seq_cursor)
-            ).scalar_one()
-            first = int(end) - n + 1
+                .values(seq_cursor=tenants.c.seq_cursor + n)
+                .returning(tenants.c.seq_cursor, tenants.c.data_key_version)
+            ).one()
+            # only the data version: both move in one transaction, so a current data version means a current HMAC
+            if any(rec.data_key_version != row.data_key_version for rec, _, _ in batch):
+                raise KeyVersionChanged(f"tenant {tenant_id}: batch sealed under an old data key version; "
+                                        f"the tenant is at {row.data_key_version}")
+            first = int(row.seq_cursor) - n + 1
             cur = {r.id: (r.row_version, bool(r.deleted)) for r in conn.execute(
                 select(structures.c.id, structures.c.row_version, structures.c.deleted)
                 .where(structures.c.tenant_id == tenant_id, structures.c.id.in_(ids)))}
