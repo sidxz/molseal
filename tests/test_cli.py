@@ -4,7 +4,7 @@ import pytest
 import sqlalchemy as sa
 
 from molseal import cli
-from molseal.store import SqlStore
+from molseal.store import SqlStore, VersionConflict
 from tests.mols import molecules
 
 
@@ -143,3 +143,38 @@ def test_evaluation_commands_moved_to_bench(ctx):
             cli.main([cmd, "x.tsv", *common])
     with pytest.raises(SystemExit):
         cli.main(["search", "c1ccccc1", "--smarts", *common])
+
+
+def test_rotate_keys_reencrypts_a_tenant_and_resume_after_is_a_no_op(ctx, capsys):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    capsys.readouterr()
+    assert cli.main(["rotate-keys", *common]) == 0
+    assert "re-encrypted 30 rows" in capsys.readouterr().out
+    assert cli.main(["rotate-keys", "--resume", *common]) == 0
+    assert "re-encrypted 0 rows" in capsys.readouterr().out
+    assert cli.main(["count", "c1ccccc1", *common]) == 0
+
+
+def test_rotate_keys_all_continues_past_a_tenant_without_key_rows(ctx, capsys):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    SqlStore(sa.create_engine(common[common.index("--db") + 1])).ensure_tenant(uuid.UUID(int=0))
+    capsys.readouterr()
+    no_tenant = [a for i, a in enumerate(common) if a != "--tenant" and common[i - 1] != "--tenant"]
+    assert cli.main(["rotate-keys", "--all", *no_tenant]) == 1
+    out, err = capsys.readouterr()
+    assert "re-encrypted 30 rows" in out and "00000000-0000-0000-0000-000000000000" in err
+
+
+def test_rewrap_reports_a_key_row_conflict_instead_of_a_traceback(ctx, capsys, monkeypatch):
+    common, src = ctx
+    assert cli.main(["load", str(src), *common]) == 0
+    capsys.readouterr()
+
+    def conflict(*a):
+        raise VersionConflict("key rows changed since they were read; run again")
+    monkeypatch.setattr(SqlStore, "replace_tenant_keys", conflict)
+    assert cli.main(["rewrap", "--to", common[common.index("--key") + 1], *common]) == 1
+    assert "run again" in capsys.readouterr().err
+

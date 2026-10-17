@@ -11,6 +11,7 @@ import argparse
 import os
 import sys
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import get_args
 
@@ -18,10 +19,11 @@ import sqlalchemy as sa
 from rdkit import Chem, RDLogger
 
 from .engine import QueryKind
+from .errors import MolsealError
 from .keys import (KeyProvider, KeyProviderError, generate_key_file, new_tenant_secret, provider_from_spec,
                    unwrap_tenant_key, wrap_tenant_key)
 from .store import SqlStore
-from .vault import Vault, VaultError, rewrap_tenant
+from .vault import Vault, rewrap_tenant, rotate_tenant_keys
 
 RDLogger.DisableLog("rdApp.*")      # the CLI owns its process; the library never silences RDKit
 
@@ -77,10 +79,10 @@ def cmd_keygen(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_rewrap(args: argparse.Namespace) -> int:
-    """Re-wrap tenant keys: --key is the old provider, --to the new one."""
+def _for_tenants(args: argparse.Namespace, act: Callable[[SqlStore, uuid.UUID], str]) -> int:
+    """Run `act` for --tenant, or every tenant with --all, printing what it returns. A failure is reported on
+    stderr; with --all the other tenants still run. Exit 1 if any failed."""
     _require(args, ("db", "key") if args.all else ("db", "key", "tenant"))
-    old, new = _provider(args.key), _provider(args.to)
     store = SqlStore(sa.create_engine(args.db))
     store.create_tables()
     targets = store.list_tenants() if args.all else [uuid.UUID(args.tenant)]
@@ -90,15 +92,26 @@ def cmd_rewrap(args: argparse.Namespace) -> int:
     failed = False
     for t in targets:
         try:
-            n = rewrap_tenant(store, t, old, new)
-        except (KeyProviderError, VaultError) as exc:
+            print(f"{t}: {act(store, t)}")
+        except MolsealError as exc:
             print(f"{t}: {exc}", file=sys.stderr)
             if not args.all:
                 return 1
             failed = True
-            continue
-        print(f"{t}: rewrapped {n} key rows")
     return 1 if failed else 0
+
+
+def cmd_rewrap(args: argparse.Namespace) -> int:
+    """Re-wrap tenant keys: --key is the old provider, --to the new one."""
+    old, new = _provider(args.key), _provider(args.to)
+    return _for_tenants(args, lambda store, t: f"rewrapped {rewrap_tenant(store, t, old, new)} key rows")
+
+
+def cmd_rotate_keys(args: argparse.Namespace) -> int:
+    """New data and HMAC keys, rows re-encrypted; --resume only finishes an interrupted rotation."""
+    provider = _provider(args.key)
+    return _for_tenants(args, lambda store, t:
+                        f"re-encrypted {rotate_tenant_keys(store, t, provider, resume_only=args.resume)} rows")
 
 
 def cmd_key_check(args: argparse.Namespace) -> int:
@@ -224,6 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--all", action="store_true", help="every tenant in the database instead of --tenant")
     _add_common(w)
     w.set_defaults(fn=cmd_rewrap)
+
+    r = sub.add_parser("rotate-keys", help="new data and HMAC keys for a tenant; re-encrypts its rows in place")
+    r.add_argument("--all", action="store_true", help="every tenant in the database instead of --tenant")
+    r.add_argument("--resume", action="store_true", help="only finish a rotation that was interrupted")
+    _add_common(r)
+    r.set_defaults(fn=cmd_rotate_keys)
 
     kc = sub.add_parser("key-check", help="wrap and unwrap a throwaway secret through --key")
     _add_common(kc)
